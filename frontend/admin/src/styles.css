@@ -1,0 +1,195 @@
+:root {
+  font-family: "Geist", "Segoe UI", sans-serif;
+  color: #191815;
+  background: #ece8df;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #191815;
+  border-radius: 6px;
+  background: #191815;
+  color: #fffaf0;
+  padding: 10px 13px;
+  cursor: pointer;
+}
+button.secondary { background: #fffaf0; color: #191815; }
+
+.adminShell {
+  display: grid;
+  grid-template-columns: 238px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 22px 16px;
+  background: #191815;
+  color: #fffaf0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.adminBrand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 800;
+  margin-bottom: 28px;
+}
+.sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 6px;
+  color: #fffaf0;
+  text-decoration: none;
+}
+.sidebar a:hover { background: #2c2a25; }
+
+.panelStack {
+  padding: 22px clamp(18px, 4vw, 42px) 60px;
+}
+
+.adminTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.adminTop h1 {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-size: 54px;
+  line-height: 1;
+}
+.eyebrow {
+  margin: 0 0 6px;
+  color: #9d3f32;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+.topActions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid #c9c0b2;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+.search input { border: 0; outline: 0; background: transparent; width: 100%; }
+
+.notice {
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border: 1px solid #191815;
+  background: #f7cf6a;
+  font-weight: 800;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.metric, .chartPanel, .tablePanel, .importPanel {
+  border: 1px solid #191815;
+  background: #fffaf0;
+}
+.metric {
+  padding: 16px;
+  min-height: 112px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.metric span { color: #655b50; font-weight: 700; }
+.metric b { font-family: Georgia, serif; font-size: 31px; }
+
+.chartPanel, .tablePanel, .importPanel { padding: 16px; }
+.chartPanel { margin-bottom: 16px; }
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.sectionHead h2 { margin: 0; font-size: 20px; }
+.sectionHead span { color: #6f6457; font-weight: 700; }
+
+.dataGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.tableScroll { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 560px;
+}
+th, td {
+  text-align: left;
+  border-bottom: 1px solid #ded5c7;
+  padding: 10px 8px;
+  vertical-align: top;
+}
+th {
+  color: #0f766e;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+td { font-size: 14px; }
+
+.importPanel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: start;
+}
+.importPanel h2 { margin: 0 0 8px; font-family: Georgia, serif; font-size: 30px; }
+.taskList {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+.task {
+  display: grid;
+  grid-template-columns: 1fr 110px 170px;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #ded5c7;
+  background: #f4efe6;
+}
+
+@media (max-width: 1000px) {
+  .adminShell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .adminBrand { width: 100%; margin-bottom: 6px; }
+  .adminTop, .importPanel { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; }
+  .metricGrid, .dataGrid { grid-template-columns: 1fr; }
+  .task { grid-template-columns: 1fr; }
+}

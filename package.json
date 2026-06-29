@@ -1,0 +1,13 @@
+{
+  "name": "gray-anime-commerce",
+  "private": true,
+  "workspaces": [
+    "frontend/web",
+    "frontend/admin"
+  ],
+  "scripts": {
+    "build": "npm run build -w frontend/web && npm run build -w frontend/admin",
+    "dev:web": "npm run dev -w frontend/web",
+    "dev:admin": "npm run dev -w frontend/admin"
+  }
+}

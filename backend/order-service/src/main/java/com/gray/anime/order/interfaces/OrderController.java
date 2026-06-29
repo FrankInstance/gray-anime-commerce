@@ -1,0 +1,35 @@
+package com.gray.anime.order.interfaces;
+
+import com.gray.anime.common.api.ApiResponse;
+import com.gray.anime.common.security.CurrentUser;
+import com.gray.anime.order.application.OrderApplicationService;
+import com.gray.anime.order.interfaces.dto.CreateOrderRequest;
+import com.gray.anime.order.interfaces.dto.OrderView;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1")
+public class OrderController {
+    private final OrderApplicationService service;
+
+    public OrderController(OrderApplicationService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/orders")
+    ApiResponse<OrderView> createOrder(@Valid @RequestBody CreateOrderRequest request, HttpServletRequest httpRequest) {
+        return ApiResponse.ok(service.createProductOrder(CurrentUser.from(httpRequest), request));
+    }
+
+    @PostMapping("/vip/orders")
+    ApiResponse<OrderView> createVipOrder(HttpServletRequest request) {
+        return ApiResponse.ok(service.createVipOrder(CurrentUser.from(request)));
+    }
+
+    @PostMapping("/chapters/{id}/purchase")
+    ApiResponse<OrderView> purchaseChapter(@PathVariable Long id, HttpServletRequest request) {
+        return ApiResponse.ok(service.purchaseChapter(CurrentUser.from(request), id));
+    }
+}

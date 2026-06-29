@@ -1,0 +1,197 @@
+services:
+  mysql:
+    image: mysql:8.4
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: gray_anime
+      MYSQL_USER: gray
+      MYSQL_PASSWORD: gray_pass
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ugray", "-pgray_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: gray
+      RABBITMQ_DEFAULT_PASS: gray_pass
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  nacos:
+    image: nacos/nacos-server:v2.4.3
+    environment:
+      MODE: standalone
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 128m
+      JVM_XMX: 256m
+      JVM_XMN: 64m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos_data:/home/nacos/data
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: gateway-service
+    environment:
+      SERVER_PORT: 8080
+      NACOS_ADDR: nacos:8848
+      JAVA_OPTS: "-Xms128m -Xmx256m"
+      JWT_SECRET: dev-secret-dev-secret-dev-secret-123456
+    ports:
+      - "8080:8080"
+    depends_on:
+      - nacos
+
+  user-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: user-service
+    environment: &service-env
+      SERVER_PORT: 8080
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: gray_anime
+      MYSQL_USER: gray
+      MYSQL_PASSWORD: gray_pass
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: gray
+      RABBITMQ_PASSWORD: gray_pass
+      NACOS_ADDR: nacos:8848
+      JWT_SECRET: dev-secret-dev-secret-dev-secret-123456
+      JAVA_OPTS: "-Xms128m -Xmx256m"
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+      - nacos
+
+  content-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: content-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+
+  shop-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: shop-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: inventory-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - redis
+      - nacos
+
+  order-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - rabbitmq
+      - nacos
+      - inventory-service
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - rabbitmq
+      - nacos
+      - inventory-service
+
+  ingestion-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: ingestion-service
+    environment: *service-env
+    depends_on:
+      - mysql
+      - rabbitmq
+      - nacos
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  nacos_data:
+  minio_data:

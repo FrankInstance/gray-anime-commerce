@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: shop-service
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:gray_anime}?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_0900_ai_ci&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:gray}
+    password: ${MYSQL_PASSWORD:gray_pass}
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        enabled: ${NACOS_ENABLED:true}
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
