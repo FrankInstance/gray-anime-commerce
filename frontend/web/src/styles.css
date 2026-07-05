@@ -40,7 +40,6 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .sectionSearch,
 .sectionSearch button,
 .resultCopy,
-.authTabs button,
 .authForm button,
 .chapterRow button,
 .productDetail button,
@@ -694,36 +693,10 @@ button.secondary,
   background: #352b24;
 }
 
-.authTabs {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin: 4px auto 24px;
-}
-
-.authTabs button {
-  position: relative;
-  justify-content: center;
-  min-width: 132px;
-  border: 1px solid #1a1714;
-  border-radius: 6px;
-  background: #fff8ef;
-  color: #1a1714;
-  padding: 10px 16px;
-  box-shadow: none;
-  font-size: 16px;
-  font-weight: 900;
-}
-
-.authTabs button.active {
-  background: #1a1714;
-  color: #fff8ef;
-  box-shadow: 4px 4px 0 #c6553d;
-}
-
 .authForm {
   display: grid;
   gap: 18px;
+  margin-top: 42px;
 }
 
 .authField {
@@ -917,12 +890,963 @@ button.secondary,
     box-shadow: 6px 6px 0 #c6553d;
   }
 
-  .authTabs {
-    gap: 10px;
+  .authField {
+    grid-template-columns: 62px 1fr;
+  }
+
+  .authField span {
+    padding-left: 12px;
+  }
+
+  .authField input {
+    padding-inline: 12px;
+  }
+
+  .authActions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Neon night theme */
+:root {
+  color-scheme: dark;
+  --night-0: #02030b;
+  --night-1: #080a18;
+  --night-2: #11152c;
+  --ink: #f7fbff;
+  --muted: #b6c1dc;
+  --line: rgba(139, 248, 255, 0.34);
+  --line-hot: rgba(255, 70, 207, 0.44);
+  --cyan: #65f5ff;
+  --pink: #ff47d4;
+  --violet: #9a6dff;
+  --acid: #f3ff75;
+  --glass: rgba(7, 10, 26, 0.74);
+  --glass-strong: rgba(8, 11, 29, 0.88);
+  --blur-panel: blur(22px) saturate(1.35);
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: var(--night-0);
+  color: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
+  background: var(--night-0);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+}
+
+body::before {
+  inset: -34px;
+  z-index: 0;
+  background-image: url("/neon-night-bg.png");
+  background-position: center right;
+  background-size: cover;
+  filter: blur(10px) saturate(1.34) brightness(0.62);
+  opacity: 0.88;
+  transform: scale(1.035);
+}
+
+body::after {
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 17% 20%, rgba(101, 245, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 78% 18%, rgba(255, 71, 212, 0.18), transparent 28%),
+    linear-gradient(115deg, rgba(4, 5, 17, 0.62), rgba(10, 6, 29, 0.54) 46%, rgba(2, 3, 11, 0.84)),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 5px);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+::selection {
+  background: rgba(255, 71, 212, 0.7);
+  color: #fff;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.2), rgba(255, 71, 212, 0.18)),
+    rgba(10, 13, 32, 0.92);
+  color: var(--ink);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 18px rgba(101, 245, 255, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.28);
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+button:hover:not(:disabled),
+button:focus-visible {
+  border-color: rgba(101, 245, 255, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 0 24px rgba(101, 245, 255, 0.26),
+    0 0 34px rgba(255, 71, 212, 0.16),
+    0 16px 34px rgba(0, 0, 0, 0.36);
+  transform: translateY(-1px);
+}
+
+button:focus-visible {
+  outline: 2px solid rgba(243, 255, 117, 0.86);
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+button.secondary,
+.buttonLink.secondary {
+  background: rgba(8, 11, 29, 0.62);
+  color: var(--cyan);
+  border-color: rgba(255, 71, 212, 0.34);
+  box-shadow: 0 0 18px rgba(255, 71, 212, 0.1);
+}
+
+.shell {
+  position: relative;
+  min-height: 100vh;
+  background: transparent;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 16px clamp(18px, 5vw, 64px);
+  border-bottom: 1px solid rgba(101, 245, 255, 0.24);
+  background: rgba(3, 5, 16, 0.72);
+  backdrop-filter: var(--blur-panel);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 42px rgba(0, 0, 0, 0.34);
+}
+
+.brandButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-shadow:
+    0 0 12px rgba(101, 245, 255, 0.62),
+    0 0 28px rgba(255, 71, 212, 0.32);
+}
+
+.brandButton svg {
+  color: var(--acid);
+  filter: drop-shadow(0 0 10px rgba(243, 255, 117, 0.72));
+}
+
+.topbar nav {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.topbar nav button {
+  border: 1px solid transparent;
+  background: rgba(11, 15, 37, 0.38);
+  color: var(--muted);
+  padding: 8px 13px;
+  box-shadow: none;
+  font-weight: 900;
+}
+
+.topbar nav button:hover,
+.topbar nav button.navActive {
+  border-color: rgba(101, 245, 255, 0.64);
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.18), rgba(255, 71, 212, 0.18)),
+    rgba(10, 13, 32, 0.82);
+  color: var(--ink);
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.7);
+}
+
+.accountTrigger {
+  min-width: 118px;
+  justify-content: space-between;
+  background: rgba(8, 11, 29, 0.72);
+  color: var(--ink);
+  border-color: rgba(101, 245, 255, 0.34);
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.1);
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(101, 245, 255, 0.56);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(243, 255, 117, 0.9), transparent 22%),
+    linear-gradient(135deg, rgba(101, 245, 255, 0.36), rgba(255, 71, 212, 0.34));
+  color: #fff;
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.28);
+}
+
+.avatar.signed {
+  background:
+    radial-gradient(circle at 28% 20%, rgba(243, 255, 117, 0.95), transparent 20%),
+    linear-gradient(135deg, rgba(101, 245, 255, 0.7), rgba(154, 109, 255, 0.68));
+  color: var(--night-0);
+}
+
+.accountDropdown,
+.authDialog,
+.sectionSearch,
+.resultCard,
+.emptyState,
+.detailBoard,
+.productDetail,
+.readerToc,
+.readerPane,
+.readerLocked {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    var(--glass);
+  backdrop-filter: var(--blur-panel);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.045) inset,
+    0 0 34px rgba(101, 245, 255, 0.13),
+    0 0 48px rgba(255, 71, 212, 0.09),
+    0 22px 62px rgba(0, 0, 0, 0.42);
+}
+
+.accountDropdown {
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 25;
+  width: min(280px, calc(100vw - 36px));
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.accountSummary {
+  border-bottom: 1px solid rgba(101, 245, 255, 0.18);
+}
+
+.accountSummary span {
+  color: var(--muted);
+}
+
+.accountSummary small,
+.eyebrow,
+.chapterRow small,
+.tocItem span,
+.tocItem small {
+  color: var(--acid);
+  text-shadow: 0 0 12px rgba(243, 255, 117, 0.36);
+}
+
+.dropdownAction {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: rgba(101, 245, 255, 0.22);
+  background: rgba(10, 14, 35, 0.72);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.dropdownAction:hover,
+.dropdownAction:focus-visible {
+  border-color: rgba(255, 71, 212, 0.58);
+  background: rgba(255, 71, 212, 0.14);
+}
+
+.dropdownAction.muted {
+  color: var(--muted);
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  min-height: 38vh;
+  padding: clamp(46px, 7vw, 86px) clamp(18px, 5vw, 64px) 30px;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  left: clamp(18px, 5vw, 64px);
+  right: clamp(18px, 5vw, 64px);
+  bottom: 8px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(101, 245, 255, 0.8), rgba(255, 71, 212, 0.68), transparent);
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.46);
+}
+
+.compactHero {
+  align-items: end;
+}
+
+.heroCopy h1 {
+  margin: 0;
+  max-width: 980px;
+  color: #fff;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: clamp(58px, 10vw, 132px);
+  font-weight: 950;
+  line-height: 0.86;
+  letter-spacing: 0;
+  text-wrap: balance;
+  text-shadow:
+    0 0 4px #fff,
+    0 0 18px rgba(101, 245, 255, 0.82),
+    0 0 42px rgba(255, 71, 212, 0.58),
+    2px 0 0 rgba(255, 71, 212, 0.72),
+    -2px 0 0 rgba(101, 245, 255, 0.58);
+}
+
+.heroCopy p {
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.catalogShell,
+.detailPage {
+  padding: 0 clamp(18px, 5vw, 64px) 82px;
+}
+
+.sectionSearch {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 26px;
+  padding: 12px;
+}
+
+.sectionSearch svg,
+.sectionSearch button svg,
+.resultCopy svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 8px rgba(101, 245, 255, 0.64));
+}
+
+.sectionSearch input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: 0;
+}
+
+.sectionSearch input::placeholder,
+.authField input::placeholder {
+  color: rgba(211, 220, 246, 0.58);
+}
+
+.sectionSearch button {
+  justify-content: center;
+  color: var(--night-0);
+  border-color: rgba(243, 255, 117, 0.7);
+  background: linear-gradient(135deg, var(--acid), var(--cyan));
+  box-shadow: 0 0 24px rgba(243, 255, 117, 0.22);
+}
+
+.resultHeader {
+  color: var(--ink);
+}
+
+.resultHeader h2,
+.detailTitle h1,
+.productDetail h1,
+.readerTop h1,
+.readerArticleHeader h2 {
+  color: #fff;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-shadow:
+    0 0 16px rgba(101, 245, 255, 0.35),
+    0 0 26px rgba(255, 71, 212, 0.2);
+}
+
+.resultList {
+  display: grid;
+  gap: 16px;
+}
+
+.resultCard {
+  position: relative;
+  grid-template-columns: 132px minmax(0, 1fr);
+  min-height: 172px;
+  overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.resultCard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, rgba(101, 245, 255, 0.1), transparent 34%, rgba(255, 71, 212, 0.1));
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.resultCard:hover {
+  border-color: rgba(255, 71, 212, 0.58);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+    0 0 38px rgba(101, 245, 255, 0.18),
+    0 0 56px rgba(255, 71, 212, 0.17),
+    0 26px 66px rgba(0, 0, 0, 0.48);
+  transform: translateY(-2px);
+}
+
+.resultCard:hover::after {
+  opacity: 1;
+}
+
+.resultCover {
+  display: block;
+  min-height: 172px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid rgba(101, 245, 255, 0.22);
+  border-radius: 0;
+  background: rgba(101, 245, 255, 0.1);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.resultCover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(1.12) contrast(1.04);
+}
+
+.resultCopy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 20px;
+  box-shadow: none;
+  text-align: left;
+}
+
+.resultCopy:hover,
+.resultCopy:focus-visible {
+  background: rgba(101, 245, 255, 0.04);
+  transform: none;
+}
+
+.resultCopy h3 {
+  margin: 0;
+  color: #fff;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 27px;
+  font-weight: 950;
+  text-wrap: balance;
+}
+
+.resultCopy p,
+.detailTitle p,
+.productDetail p,
+.readerLocked p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+
+.resultCopy small,
+.skuRow b {
+  color: var(--cyan);
+  font-weight: 950;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.42);
+}
+
+.pager {
+  margin-top: 24px;
+}
+
+.pager span {
+  color: var(--ink);
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.28);
+}
+
+.pager button,
+.backButton,
+.readerNav button,
+.readerFooter button,
+.readerLocked button,
+.chapterRow button,
+.productDetail button {
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.12);
+}
+
+.emptyState {
+  padding: 28px;
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.backButton {
+  margin: 24px 0 18px;
+}
+
+.detailTitle {
+  color: var(--ink);
+}
+
+.detailBoard,
+.productDetail {
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 22px;
+  padding: 18px;
+}
+
+.detailBoard > img,
+.productDetail > img,
+.readerImages img {
+  width: 100%;
+  border: 1px solid rgba(101, 245, 255, 0.34);
+  border-radius: 8px;
+  background: rgba(6, 9, 22, 0.76);
+  box-shadow:
+    0 0 20px rgba(101, 245, 255, 0.12),
+    0 0 34px rgba(255, 71, 212, 0.08);
+  object-fit: cover;
+}
+
+.detailBoard > img,
+.productDetail > img {
+  aspect-ratio: 3 / 4;
+}
+
+.chapterList {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.chapterRow,
+.skuRow {
+  border-color: rgba(101, 245, 255, 0.18);
+}
+
+.chapterRow {
+  border: 1px solid rgba(101, 245, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 9, 24, 0.64);
+}
+
+.chapterRow > span,
+.skuRow span,
+.tocItem b {
+  color: var(--ink);
+}
+
+.readerPage {
+  padding: 24px clamp(18px, 5vw, 64px) 56px;
+}
+
+.readerTop {
+  color: var(--ink);
+}
+
+.readerToc {
+  position: sticky;
+  top: 90px;
+  padding: 14px;
+}
+
+.tocList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tocItem {
+  width: 100%;
+  justify-content: flex-start;
+  border-color: rgba(101, 245, 255, 0.18);
+  background: rgba(6, 9, 24, 0.62);
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+}
+
+.tocItem:hover,
+.tocItem.active {
+  border-color: rgba(255, 71, 212, 0.58);
+  background: rgba(255, 71, 212, 0.12);
+}
+
+.readerPane {
+  min-height: 560px;
+  padding: clamp(18px, 4vw, 44px);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 25%),
+    rgba(5, 7, 20, 0.88);
+}
+
+.readerArticleHeader,
+.readerFooter {
+  border-color: rgba(101, 245, 255, 0.18);
+}
+
+.readerBody {
+  max-width: 760px;
+  margin: 0 auto;
+  color: #eef5ff;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: clamp(18px, 2vw, 21px);
+  line-height: 2.05;
+}
+
+.readerBody p {
+  margin: 0 0 1.35em;
+}
+
+.readerLocked {
+  max-width: 560px;
+  margin: 40px auto;
+  padding: 24px;
+}
+
+.readerLocked h2 {
+  color: #fff;
+  text-shadow: 0 0 18px rgba(255, 71, 212, 0.36);
+}
+
+.productDetail > div {
+  align-self: center;
+}
+
+.skuList {
+  max-width: 480px;
+  margin: 18px 0;
+  border-top: 1px solid rgba(101, 245, 255, 0.18);
+}
+
+.skuRow {
+  border-bottom: 1px solid rgba(101, 245, 255, 0.18);
+}
+
+.modalLayer {
+  background:
+    radial-gradient(circle at 35% 20%, rgba(101, 245, 255, 0.2), transparent 32%),
+    rgba(1, 2, 8, 0.68);
+  backdrop-filter: blur(8px);
+}
+
+.authDialog {
+  width: min(500px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 34px 38px 36px;
+}
+
+.modalClose {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  border-color: rgba(255, 71, 212, 0.44);
+  background: rgba(8, 11, 29, 0.88);
+  color: var(--ink);
+  box-shadow: 0 0 18px rgba(255, 71, 212, 0.18);
+}
+
+.modalClose:hover {
+  background: rgba(255, 71, 212, 0.2);
+}
+
+.authForm {
+  gap: 18px;
+  margin-top: 42px;
+}
+
+.authField {
+  grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 46px;
+  border: 1px solid rgba(101, 245, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(6, 9, 24, 0.72);
+  overflow: hidden;
+}
+
+.authField span {
+  color: var(--cyan);
+  font-weight: 950;
+  text-shadow: 0 0 10px rgba(101, 245, 255, 0.42);
+}
+
+.authField input {
+  border-left: 1px solid rgba(101, 245, 255, 0.18);
+  color: var(--ink);
+  background: transparent;
+}
+
+.authField:focus-within {
+  border-color: rgba(101, 245, 255, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(255, 71, 212, 0.18) inset,
+    0 0 20px rgba(101, 245, 255, 0.2),
+    0 0 26px rgba(255, 71, 212, 0.12);
+}
+
+.authActions button {
+  min-height: 44px;
+  font-weight: 950;
+}
+
+.authActions button:not(.secondary) {
+  border-color: rgba(101, 245, 255, 0.62);
+  background: linear-gradient(135deg, rgba(101, 245, 255, 0.92), rgba(255, 71, 212, 0.86));
+  color: #fff;
+  box-shadow: 0 0 26px rgba(101, 245, 255, 0.22), 0 0 34px rgba(255, 71, 212, 0.16);
+}
+
+.authActions button.secondary {
+  background: rgba(8, 11, 29, 0.62);
+  color: var(--cyan);
+}
+
+.authError {
+  border-color: rgba(255, 71, 212, 0.58);
+  background: rgba(255, 71, 212, 0.14);
+  color: #ffe8fb;
+}
+
+@supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+  .topbar,
+  .accountDropdown,
+  .authDialog,
+  .sectionSearch,
+  .resultCard,
+  .emptyState,
+  .detailBoard,
+  .productDetail,
+  .readerToc,
+  .readerPane,
+  .readerLocked {
+    background: rgba(5, 7, 20, 0.94);
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+  }
+
+  .topbar nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .accountMenu {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .detailBoard,
+  .productDetail,
+  .readerTop,
+  .readerLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .resultHeader,
+  .detailTitle {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .readerToc {
+    position: static;
+  }
+
+  .readerNav,
+  .readerFooter {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 620px) {
+  body::before {
+    inset: -20px;
+    filter: blur(9px) saturate(1.2) brightness(0.56);
+  }
+
+  .topbar {
+    padding: 14px 14px 12px;
+  }
+
+  .brandButton {
+    font-size: 19px;
+  }
+
+  .accountTrigger {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+
+  .accountTrigger > span:not(.avatar) {
+    display: none;
+  }
+
+  .hero {
+    min-height: 30vh;
+    padding-inline: 14px;
+  }
+
+  .hero::after {
+    left: 14px;
+    right: 14px;
+  }
+
+  .heroCopy h1 {
+    font-size: clamp(48px, 18vw, 76px);
+  }
+
+  .catalogShell,
+  .detailPage,
+  .readerPage {
+    padding-inline: 12px;
+  }
+
+  .sectionSearch {
+    grid-template-columns: auto 1fr;
+  }
+
+  .sectionSearch button {
+    grid-column: 1 / -1;
+  }
+
+  .resultCard {
+    grid-template-columns: 96px minmax(0, 1fr);
+    min-height: 142px;
+  }
+
+  .resultCover {
+    min-height: 142px;
+  }
+
+  .resultCopy {
+    padding: 12px;
+  }
+
+  .resultCopy h3 {
+    font-size: 22px;
+  }
+
+  .resultCopy p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .chapterRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chapterRow div {
+    justify-content: flex-start;
+  }
+
+  .readerPane {
+    padding: 18px;
+  }
+
+  .tocItem {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .authDialog {
+    padding: 42px 18px 22px;
   }
 
   .authField {
-    grid-template-columns: 62px 1fr;
+    grid-template-columns: 62px minmax(0, 1fr);
   }
 
   .authField span {

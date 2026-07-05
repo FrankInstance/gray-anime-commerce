@@ -587,15 +587,7 @@ export function App() {
             <button className="modalClose" type="button" aria-label="关闭登录注册窗口" onClick={closeAuth}>
               <X size={18} />
             </button>
-            <h2 id="auth-title">{authMode === 'login' ? '邮箱登录' : '邮箱注册'}</h2>
-            <div className="authTabs" role="tablist" aria-label="登录注册切换">
-              <button type="button" className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); setAuthError(''); }}>
-                邮箱登录
-              </button>
-              <button type="button" className={authMode === 'register' ? 'active' : ''} onClick={() => { setAuthMode('register'); setAuthError(''); }}>
-                注册
-              </button>
-            </div>
+            <h2 id="auth-title">{authMode === 'login' ? '登录' : '注册'}</h2>
             <form className="authForm" onSubmit={submitAuth}>
               <label className="authField">
                 <span>邮箱</span>
