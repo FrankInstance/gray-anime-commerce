@@ -5,6 +5,7 @@ import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.order.application.OrderApplicationService;
 import com.gray.anime.order.interfaces.dto.CreateOrderRequest;
 import com.gray.anime.order.interfaces.dto.OrderView;
+import com.gray.anime.order.interfaces.dto.PointsOrderRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -26,6 +27,11 @@ public class OrderController {
     @PostMapping("/vip/orders")
     ApiResponse<OrderView> createVipOrder(HttpServletRequest request) {
         return ApiResponse.ok(service.createVipOrder(CurrentUser.from(request)));
+    }
+
+    @PostMapping("/orders/points")
+    ApiResponse<OrderView> createPointsOrder(@Valid @RequestBody PointsOrderRequest body, HttpServletRequest request) {
+        return ApiResponse.ok(service.createPointsOrder(CurrentUser.from(request), body));
     }
 
     @PostMapping("/chapters/{id}/purchase")

@@ -10,6 +10,7 @@ import com.gray.anime.order.domain.*;
 import com.gray.anime.order.infrastructure.client.InventoryClient;
 import com.gray.anime.order.infrastructure.mapper.*;
 import com.gray.anime.order.interfaces.dto.*;
+import feign.FeignException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,7 +68,7 @@ public class OrderApplicationService {
                 throw new BizException("SKU_NOT_FOUND", "SKU not found");
             }
             int unitPrice = user.isVip() ? Math.round(sku.getPriceCents() * 0.9f) : sku.getPriceCents();
-            ReservationView reservation = inventoryClient.reserve(new ReserveStockRequest(user.id(), sku.getId(), line.quantity(), orderNo + ":" + sku.getId())).data();
+            ReservationView reservation = reserveStock(user.id(), sku.getId(), line.quantity(), orderNo + ":" + sku.getId());
             OrderItem item = new OrderItem();
             item.setOrderId(order.getId());
             item.setItemType("SKU");
@@ -105,6 +106,41 @@ public class OrderApplicationService {
         order.setUpdatedAt(now);
         orderMapper.insert(order);
         outbox("Order", orderNo, "VipOrderCreated", "{\"orderNo\":\"" + orderNo + "\",\"amountCents\":3000}");
+        return orderView(order);
+    }
+
+    @Transactional
+    public OrderView createPointsOrder(CurrentUser user, PointsOrderRequest request) {
+        requireLogin(user);
+        int amountCents = request.amountCents() == null ? 0 : request.amountCents();
+        if (amountCents != 1000 && amountCents != 5000 && amountCents != 10000) {
+            throw new BizException("INVALID_POINTS_PACKAGE", "Unsupported points package");
+        }
+        int points = amountCents / 10;
+        String orderNo = "PT" + System.currentTimeMillis() + randomSuffix();
+        LocalDateTime now = LocalDateTime.now();
+        OrderRecord order = new OrderRecord();
+        order.setOrderNo(orderNo);
+        order.setUserId(user.id());
+        order.setOrderType("POINTS");
+        order.setTotalCents(amountCents);
+        order.setTotalPoints(points);
+        order.setStatus("PENDING_PAYMENT");
+        order.setPaymentNo(createPayment(orderNo, user.id(), amountCents));
+        order.setCreatedAt(now);
+        order.setUpdatedAt(now);
+        orderMapper.insert(order);
+
+        OrderItem item = new OrderItem();
+        item.setOrderId(order.getId());
+        item.setItemType("POINTS");
+        item.setTitle(points + "积分");
+        item.setQuantity(1);
+        item.setUnitPriceCents(amountCents);
+        item.setUnitPoints(points);
+        itemMapper.insert(item);
+
+        outbox("Order", orderNo, "PointsOrderCreated", "{\"orderNo\":\"" + orderNo + "\",\"points\":" + points + "}");
         return orderView(order);
     }
 
@@ -200,6 +236,21 @@ public class OrderApplicationService {
         payment.setCreatedAt(LocalDateTime.now());
         paymentMapper.insert(payment);
         return paymentNo;
+    }
+
+    private ReservationView reserveStock(Long userId, Long skuId, int quantity, String bizKey) {
+        try {
+            return inventoryClient.reserve(new ReserveStockRequest(userId, skuId, quantity, bizKey)).data();
+        } catch (FeignException exception) {
+            String body = exception.contentUTF8();
+            if (body != null && body.contains("PURCHASE_LIMIT_EXCEEDED")) {
+                throw new BizException("PURCHASE_LIMIT_EXCEEDED", "限购商品，你已超出购买数量");
+            }
+            if (body != null && body.contains("STOCK_NOT_ENOUGH")) {
+                throw new BizException("STOCK_NOT_ENOUGH", "库存不足");
+            }
+            throw exception;
+        }
     }
 
     private void grantChapter(Long userId, Long chapterId, String source) {

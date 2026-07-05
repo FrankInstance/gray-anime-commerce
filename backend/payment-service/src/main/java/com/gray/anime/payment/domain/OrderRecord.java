@@ -13,6 +13,7 @@ public class OrderRecord {
     private Long userId;
     private String orderType;
     private Integer totalCents;
+    private Integer totalPoints;
     private String status;
     private LocalDateTime updatedAt;
 
@@ -26,6 +27,8 @@ public class OrderRecord {
     public void setOrderType(String orderType) { this.orderType = orderType; }
     public Integer getTotalCents() { return totalCents; }
     public void setTotalCents(Integer totalCents) { this.totalCents = totalCents; }
+    public Integer getTotalPoints() { return totalPoints; }
+    public void setTotalPoints(Integer totalPoints) { this.totalPoints = totalPoints; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

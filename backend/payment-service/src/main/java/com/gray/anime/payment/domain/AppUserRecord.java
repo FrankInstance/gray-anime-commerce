@@ -9,11 +9,14 @@ import java.time.LocalDateTime;
 public class AppUserRecord {
     @TableId
     private Long id;
+    private Integer points;
     private LocalDateTime vipUntil;
     private LocalDateTime updatedAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Integer getPoints() { return points; }
+    public void setPoints(Integer points) { this.points = points; }
     public LocalDateTime getVipUntil() { return vipUntil; }
     public void setVipUntil(LocalDateTime vipUntil) { this.vipUntil = vipUntil; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

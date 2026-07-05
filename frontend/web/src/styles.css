@@ -112,8 +112,8 @@ button.secondary,
   content: "";
   position: absolute;
   top: 100%;
-  right: 0;
-  width: min(280px, calc(100vw - 36px));
+  left: 0;
+  width: 100%;
   height: 12px;
 }
 
@@ -136,11 +136,6 @@ button.secondary,
   background: #f7ead7;
   color: #1a1714;
   font-weight: 900;
-}
-
-.avatar.signed {
-  background: #1f6f73;
-  color: #fff8ef;
 }
 
 .accountDropdown {
@@ -907,6 +902,558 @@ button.secondary,
   }
 }
 
+/* Cart flow */
+.headerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: 10px;
+}
+
+.cartTrigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 9px 13px;
+  border-color: rgba(101, 245, 255, 0.34);
+  background: rgba(8, 11, 29, 0.72);
+  color: var(--ink);
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.1);
+}
+
+.cartTrigger.hasItems {
+  border-color: rgba(255, 71, 212, 0.58);
+}
+
+.cartTrigger svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 8px rgba(101, 245, 255, 0.58));
+}
+
+.cartTrigger b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--acid), var(--pink));
+  color: var(--night-0);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 18px rgba(255, 71, 212, 0.34);
+}
+
+.productCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.productCardActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.cartLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  justify-content: flex-end;
+  background:
+    radial-gradient(circle at 78% 20%, rgba(255, 71, 212, 0.22), transparent 30%),
+    rgba(1, 2, 8, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.cartPanel {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 16px;
+  width: min(460px, 100%);
+  height: 100%;
+  padding: 24px;
+  border-left: 1px solid var(--line);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    rgba(5, 7, 20, 0.92);
+  backdrop-filter: var(--blur-panel);
+  box-shadow:
+    -18px 0 70px rgba(0, 0, 0, 0.48),
+    0 0 44px rgba(101, 245, 255, 0.12),
+    0 0 60px rgba(255, 71, 212, 0.12);
+  overflow: auto;
+}
+
+.cartHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 48px;
+  padding-right: 48px;
+}
+
+.cartHeader h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 38px;
+  line-height: 1;
+  text-shadow:
+    0 0 16px rgba(101, 245, 255, 0.38),
+    0 0 28px rgba(255, 71, 212, 0.22);
+}
+
+.cartMessage {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(101, 245, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(101, 245, 255, 0.08);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.cartToast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 55;
+  transform: translate(-50%, -50%);
+  padding: 12px 18px;
+  border: 1px solid rgba(101, 245, 255, 0.48);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.18), rgba(255, 71, 212, 0.16)),
+    rgba(5, 7, 20, 0.84);
+  color: #fff;
+  font-weight: 950;
+  letter-spacing: 0;
+  box-shadow:
+    0 0 26px rgba(101, 245, 255, 0.24),
+    0 0 34px rgba(255, 71, 212, 0.2);
+  backdrop-filter: var(--blur-panel);
+  pointer-events: none;
+}
+
+.paymentPrompt {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(243, 255, 117, 0.34);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(243, 255, 117, 0.1), rgba(255, 71, 212, 0.1)),
+    rgba(6, 9, 24, 0.72);
+  box-shadow:
+    0 0 20px rgba(243, 255, 117, 0.1),
+    0 0 26px rgba(255, 71, 212, 0.08);
+}
+
+.paymentPrompt h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 20px;
+  text-shadow: 0 0 14px rgba(243, 255, 117, 0.22);
+}
+
+.paymentMeta {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.paymentMeta div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+
+.paymentMeta dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.paymentMeta dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.paymentPrompt button {
+  justify-self: stretch;
+}
+
+.cartList {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.cartItem {
+  display: grid;
+  grid-template-columns: 24px 76px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(101, 245, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(6, 9, 24, 0.68);
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.08);
+}
+
+.cartItem.isSelected {
+  border-color: rgba(101, 245, 255, 0.34);
+  background:
+    linear-gradient(90deg, rgba(101, 245, 255, 0.08), transparent 42%),
+    rgba(6, 9, 24, 0.7);
+}
+
+.cartItem.hasItemMessage {
+  border-color: rgba(255, 71, 212, 0.52);
+  box-shadow:
+    0 0 18px rgba(101, 245, 255, 0.08),
+    0 0 22px rgba(255, 71, 212, 0.12);
+}
+
+.cartSelectCircle {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  border: 1px solid rgba(101, 245, 255, 0.46);
+  border-radius: 999px;
+  background: rgba(5, 7, 20, 0.78);
+  box-shadow: none;
+  align-self: center;
+}
+
+.cartSelectCircle::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: inherit;
+  background: transparent;
+  transition: background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.cartSelectCircle:hover:not(:disabled) {
+  border-color: var(--cyan);
+  transform: scale(1.06);
+}
+
+.cartSelectCircle.isSelected::after {
+  background: var(--cyan);
+  box-shadow:
+    0 0 10px rgba(101, 245, 255, 0.78),
+    0 0 16px rgba(255, 71, 212, 0.24);
+}
+
+.cartSelectCircle.isPartial::after {
+  width: 9px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--acid);
+  box-shadow: 0 0 10px rgba(243, 255, 117, 0.62);
+}
+
+.cartItem img {
+  width: 76px;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border: 1px solid rgba(101, 245, 255, 0.28);
+  border-radius: 6px;
+  background: rgba(101, 245, 255, 0.08);
+}
+
+.cartItemMain {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cartItemMain h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1.28;
+  text-wrap: balance;
+}
+
+.cartItemMain small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.cartDiscount {
+  color: var(--acid) !important;
+  font-weight: 950;
+  text-shadow: 0 0 10px rgba(243, 255, 117, 0.24);
+}
+
+.cartItemMessage {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 71, 212, 0.38);
+  border-radius: 6px;
+  background: rgba(255, 71, 212, 0.1);
+  color: #ffd7f5;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.35;
+  text-shadow: 0 0 10px rgba(255, 71, 212, 0.22);
+}
+
+.cartItemPrice {
+  align-self: start;
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 78px;
+}
+
+.cartItemPrice del {
+  color: rgba(222, 228, 255, 0.46);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration-color: rgba(255, 71, 212, 0.78);
+  font-variant-numeric: tabular-nums;
+}
+
+.cartItemPrice b,
+.cartItem > b {
+  align-self: start;
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.38);
+}
+
+.cartItemControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.cartItemControls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  box-shadow: none;
+}
+
+.cartItemControls span {
+  min-width: 22px;
+  color: var(--ink);
+  text-align: center;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+}
+
+.cartItemControls .cartRemove {
+  border-color: rgba(255, 71, 212, 0.4);
+  color: #ffd7f5;
+}
+
+.cartFooter {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid rgba(101, 245, 255, 0.18);
+  background: linear-gradient(180deg, transparent, rgba(5, 7, 20, 0.94) 22%);
+}
+
+.cartBulkActions {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
+.cartSelectAllButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-color: rgba(101, 245, 255, 0.28);
+  background: rgba(5, 7, 20, 0.62);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.cartRemoveSelected {
+  min-height: 28px;
+  padding: 5px 9px;
+  border-color: rgba(255, 71, 212, 0.38);
+  background: rgba(5, 7, 20, 0.48);
+  color: #ffd7f5;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.cartRemoveSelected:hover:not(:disabled) {
+  border-color: rgba(255, 71, 212, 0.66);
+  color: #fff;
+}
+
+.cartSelectAllButton .cartSelectCircle {
+  pointer-events: none;
+}
+
+.cartSelectAllButton:hover:not(:disabled) {
+  border-color: rgba(101, 245, 255, 0.5);
+  color: #fff;
+}
+
+.cartSelectAllButton:hover:not(:disabled) .cartSelectCircle {
+  border-color: var(--cyan);
+  transform: scale(1.06);
+}
+
+.cartSummary {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cartFooter span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cartFooter small {
+  color: var(--acid);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.3;
+  text-align: right;
+  white-space: nowrap;
+  text-shadow: 0 0 10px rgba(243, 255, 117, 0.2);
+}
+
+.cartFooter strong {
+  color: #fff;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 14px rgba(101, 245, 255, 0.4),
+    0 0 20px rgba(255, 71, 212, 0.2);
+}
+
+.cartEmpty {
+  align-self: center;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 48px 18px;
+  border: 1px solid rgba(101, 245, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 9, 24, 0.58);
+  text-align: center;
+}
+
+.cartEmpty svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 12px rgba(101, 245, 255, 0.58));
+}
+
+.cartEmpty h3 {
+  margin: 0;
+  color: #fff;
+}
+
+@media (max-width: 900px) {
+  .headerActions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 620px) {
+  .headerActions {
+    gap: 8px;
+  }
+
+  .cartTrigger {
+    min-width: 0;
+    padding: 8px 10px;
+  }
+
+  .cartTrigger > span {
+    display: none;
+  }
+
+  .cartPanel {
+    width: 100%;
+    padding: 18px 14px;
+  }
+
+  .cartItem {
+    grid-template-columns: 22px 64px minmax(0, 1fr);
+  }
+
+  .cartItem img {
+    width: 64px;
+  }
+
+  .cartItemPrice {
+    grid-column: 3;
+    justify-self: start;
+  }
+
+  .cartFooter {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cartBulkActions {
+    grid-column: 1;
+  }
+
+  .cartSummary {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+
+  .cartFooter > button:last-child {
+    grid-column: 2;
+    grid-row: 1;
+    width: 100%;
+  }
+}
+
 /* Neon night theme */
 :root {
   color-scheme: dark;
@@ -1131,15 +1678,10 @@ button.secondary,
   box-shadow: 0 0 18px rgba(101, 245, 255, 0.28);
 }
 
-.avatar.signed {
-  background:
-    radial-gradient(circle at 28% 20%, rgba(243, 255, 117, 0.95), transparent 20%),
-    linear-gradient(135deg, rgba(101, 245, 255, 0.7), rgba(154, 109, 255, 0.68));
-  color: var(--night-0);
-}
-
 .accountDropdown,
 .authDialog,
+.insufficientDialog,
+.rechargeDialog,
 .sectionSearch,
 .resultCard,
 .emptyState,
@@ -1602,6 +2144,20 @@ button.secondary,
   border-bottom: 1px solid rgba(101, 245, 255, 0.18);
 }
 
+.skuPrice {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+}
+
+.skuPrice small {
+  color: var(--acid);
+  font-size: 12px;
+  font-weight: 950;
+  text-shadow: 0 0 10px rgba(243, 255, 117, 0.24);
+}
+
 .modalLayer {
   background:
     radial-gradient(circle at 35% 20%, rgba(101, 245, 255, 0.2), transparent 32%),
@@ -1614,6 +2170,130 @@ button.secondary,
   max-height: calc(100vh - 36px);
   overflow: auto;
   padding: 34px 38px 36px;
+}
+
+.insufficientDialog {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: min(360px, 100%);
+  padding: 42px 34px 34px;
+  text-align: center;
+}
+
+.insufficientDialog svg {
+  color: var(--acid);
+  filter: drop-shadow(0 0 12px rgba(243, 255, 117, 0.38));
+}
+
+.insufficientDialog h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 26px;
+  text-shadow:
+    0 0 16px rgba(101, 245, 255, 0.34),
+    0 0 24px rgba(255, 71, 212, 0.24);
+}
+
+.insufficientDialog button:not(.modalClose) {
+  min-width: 132px;
+}
+
+.rechargeDialog {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 34px;
+}
+
+.rechargeDialog header {
+  display: grid;
+  gap: 6px;
+  padding-right: 42px;
+}
+
+.rechargeDialog h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 36px;
+  line-height: 1;
+  text-shadow:
+    0 0 18px rgba(101, 245, 255, 0.34),
+    0 0 28px rgba(255, 71, 212, 0.22);
+}
+
+.rechargeDialog header small {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.rechargeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.rechargeOption {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-height: 142px;
+  padding: 16px;
+  border-color: rgba(101, 245, 255, 0.26);
+  background: rgba(6, 9, 24, 0.62);
+  text-align: left;
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.1);
+}
+
+.rechargeOption svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 10px rgba(101, 245, 255, 0.34));
+}
+
+.rechargeOption span {
+  color: #fff;
+  font-size: 21px;
+  font-weight: 950;
+}
+
+.rechargeOption small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.rechargeOption b {
+  align-self: end;
+  color: var(--acid);
+  font-size: 13px;
+  text-shadow: 0 0 10px rgba(243, 255, 117, 0.24);
+}
+
+.rechargeOption.vip {
+  border-color: rgba(243, 255, 117, 0.42);
+  background:
+    linear-gradient(135deg, rgba(243, 255, 117, 0.12), rgba(255, 71, 212, 0.12)),
+    rgba(6, 9, 24, 0.66);
+}
+
+.rechargeOption.vip svg {
+  color: var(--acid);
+}
+
+.rechargeDialog .paymentPrompt {
+  margin-top: 16px;
+}
+
+.rechargeMessage {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(101, 245, 255, 0.26);
+  border-radius: 8px;
+  background: rgba(101, 245, 255, 0.08);
+  color: var(--ink);
+  font-weight: 850;
 }
 
 .modalClose {
@@ -1695,6 +2375,8 @@ button.secondary,
   .topbar,
   .accountDropdown,
   .authDialog,
+  .insufficientDialog,
+  .rechargeDialog,
   .sectionSearch,
   .resultCard,
   .emptyState,
@@ -1843,6 +2525,18 @@ button.secondary,
 
   .authDialog {
     padding: 42px 18px 22px;
+  }
+
+  .insufficientDialog {
+    padding: 40px 20px 24px;
+  }
+
+  .rechargeDialog {
+    padding: 42px 18px 22px;
+  }
+
+  .rechargeGrid {
+    grid-template-columns: 1fr;
   }
 
   .authField {

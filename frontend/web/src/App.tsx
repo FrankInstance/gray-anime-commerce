@@ -3,15 +3,19 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Coins,
   Crown,
   Gift,
   Lock,
   LogIn,
   LogOut,
+  Minus,
+  Plus,
   Search,
   ShoppingBag,
   Sparkles,
   Ticket,
+  Trash2,
   UserPlus,
   UserRound,
   X
@@ -34,9 +38,41 @@ type Product = {
   saleStartAt: string | null;
   skus: { id: number; skuName: string; priceCents: number; vipPriceCents: number }[];
 };
+type ProductSku = Product['skus'][number];
+type CartLine = {
+  skuId: number;
+  productId: number;
+  title: string;
+  productType: string;
+  coverUrl: string;
+  limited: boolean;
+  skuName: string;
+  originalPriceCents: number;
+  vipPriceCents: number;
+  quantity: number;
+};
 type Profile = { id: number; email: string; username: string; roles: string[]; status?: string; points: number; vipUntil: string | null };
 type AuthMode = 'login' | 'register';
 type AuthResponse = { accessToken: string; expiresIn: number; profile: Profile; roles: string[] };
+type StoredAuth = { accessToken: string; profile: Profile; expiresAt: number };
+type OrderView = { orderNo: string; totalCents: number; status: string; paymentNo: string };
+type PaymentView = { paymentNo: string; orderNo: string; amountCents: number; channel: string; status: string; confirmedAt: string | null };
+type PendingPayment = { orderNo: string; paymentNo: string; amountCents: number; status: string; itemSkuIds?: number[] };
+type PendingRechargePayment = PendingPayment & { optionTitle: string; successMessage: string };
+type RealPaymentRequest = { orderNo: string; paymentNo: string; amountCents: number };
+type RealPaymentSession = { provider: string; sessionId: string; paymentNo: string; redirectUrl: string };
+type PaymentGateway = {
+  confirmMockPayment: (paymentNo: string, token: string) => Promise<PaymentView>;
+  createRealPaymentSession: (request: RealPaymentRequest, token: string) => Promise<RealPaymentSession>;
+};
+type RechargeOption = {
+  id: string;
+  type: 'POINTS' | 'VIP';
+  title: string;
+  amountCents: number;
+  points?: number;
+  caption: string;
+};
 type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
 type AppRoute =
   | { kind: 'list' }
@@ -45,11 +81,22 @@ type AppRoute =
   | { kind: 'product'; id: number };
 
 const PAGE_SIZE = 10;
+const AUTH_STORAGE_KEY = 'gray-shelf-auth-v1';
+const CART_STORAGE_KEY = 'gray-shelf-cart-v1';
+const MAX_CART_QUANTITY = 99;
+const PURCHASE_LIMIT_MESSAGE = '限购商品，你已超出购买数量';
 
 const sections: { key: SectionKey; label: string }[] = [
   { key: 'NOVEL', label: '轻小说' },
   { key: 'MANGA', label: '漫画' },
   { key: 'MEMBER', label: '会员购' }
+];
+
+const rechargeOptions: RechargeOption[] = [
+  { id: 'points-10', type: 'POINTS', title: '100 积分', amountCents: 1000, points: 100, caption: '¥10 · 1元 = 10积分' },
+  { id: 'points-50', type: 'POINTS', title: '500 积分', amountCents: 5000, points: 500, caption: '¥50 · 1元 = 10积分' },
+  { id: 'points-100', type: 'POINTS', title: '1000 积分', amountCents: 10000, points: 1000, caption: '¥100 · 1元 = 10积分' },
+  { id: 'vip-month', type: 'VIP', title: 'VIP 月卡', amountCents: 3000, caption: '¥30 · 免费阅读 VIP 章节' }
 ];
 
 const fallbackWorks: Work[] = [
@@ -127,15 +174,165 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
   return body.data;
 }
 
+const paymentGateway: PaymentGateway = {
+  confirmMockPayment(paymentNo, token) {
+    return api<PaymentView>(`/api/v1/payments/${paymentNo}/mock-confirm`, { method: 'POST' }, token);
+  },
+  createRealPaymentSession(request, token) {
+    return api<RealPaymentSession>('/api/v1/payments/checkout-session', {
+      method: 'POST',
+      body: JSON.stringify(request)
+    }, token);
+  }
+};
+
 function money(cents: number) {
   return `¥${(cents / 100).toFixed(2)}`;
 }
 
+function hasVipDiscount(priceCents: number, vipPriceCents: number) {
+  return vipPriceCents > 0 && vipPriceCents < priceCents;
+}
+
+function discountRateLabel(priceCents: number, vipPriceCents: number) {
+  if (!hasVipDiscount(priceCents, vipPriceCents)) return '';
+  const rate = Math.round((vipPriceCents / priceCents) * 100) / 10;
+  return `${Number.isInteger(rate) ? rate.toFixed(0) : rate.toFixed(1)}折`;
+}
+
+function vipDiscountText(priceCents: number, vipPriceCents: number) {
+  if (!hasVipDiscount(priceCents, vipPriceCents)) return '';
+  return `VIP ${discountRateLabel(priceCents, vipPriceCents)} · 省 ${money(priceCents - vipPriceCents)}`;
+}
+
+function cartStorageKey(profile: Profile | null) {
+  return `${CART_STORAGE_KEY}:${profile ? `user:${profile.id}` : 'guest'}`;
+}
+
+function cartLineKey(line: Pick<CartLine, 'skuId'>) {
+  return String(line.skuId);
+}
+
+function cartSkuIdSet(items: Pick<CartLine, 'skuId'>[]) {
+  return new Set(items.map((item) => item.skuId));
+}
+
+function cartQuantityTotal(items: Pick<CartLine, 'quantity'>[]) {
+  return items.reduce((total, item) => total + item.quantity, 0);
+}
+
+function cartQuantityLimit(line: Pick<CartLine, 'limited'>) {
+  return line.limited ? 1 : MAX_CART_QUANTITY;
+}
+
+function normalizeQuantity(quantity: number, line: Pick<CartLine, 'limited'>) {
+  return Math.max(1, Math.min(cartQuantityLimit(line), quantity));
+}
+
+function createCartLine(product: Product, sku: ProductSku, quantity = 1): CartLine {
+  const baseLine = {
+    skuId: sku.id,
+    productId: product.id,
+    title: product.title,
+    productType: product.productType,
+    coverUrl: product.coverUrl,
+    limited: product.limited,
+    skuName: sku.skuName,
+    originalPriceCents: sku.priceCents,
+    vipPriceCents: hasVipDiscount(sku.priceCents, sku.vipPriceCents) ? sku.vipPriceCents : sku.priceCents,
+    quantity
+  };
+  return {
+    ...baseLine,
+    quantity: normalizeQuantity(quantity, baseLine)
+  };
+}
+
+function cartUnitPriceCents(line: Pick<CartLine, 'originalPriceCents' | 'vipPriceCents'>, isVip: boolean) {
+  return isVip && hasVipDiscount(line.originalPriceCents, line.vipPriceCents)
+    ? line.vipPriceCents
+    : line.originalPriceCents;
+}
+
+function cartLineDiscountCents(line: Pick<CartLine, 'originalPriceCents' | 'vipPriceCents'>, isVip: boolean) {
+  return Math.max(0, line.originalPriceCents - cartUnitPriceCents(line, isVip));
+}
+
+function normalizeStoredCartLine(line: Partial<CartLine> & { unitPriceCents?: number }) {
+  const legacyPrice = typeof line.unitPriceCents === 'number' ? line.unitPriceCents : 0;
+  const originalPriceCents = typeof line.originalPriceCents === 'number' ? line.originalPriceCents : legacyPrice;
+  const vipPriceCents = typeof line.vipPriceCents === 'number' ? line.vipPriceCents : originalPriceCents;
+  return {
+    ...line,
+    limited: Boolean(line.limited),
+    originalPriceCents,
+    vipPriceCents,
+    quantity: normalizeQuantity(line.quantity ?? 1, { limited: Boolean(line.limited) })
+  } as CartLine;
+}
+
+function loadStoredCart(storageKey: string): CartLine[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+      ?? (storageKey === cartStorageKey(null) ? window.localStorage.getItem(CART_STORAGE_KEY) : null);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as (Partial<CartLine> & { unitPriceCents?: number })[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((line) => (
+        typeof line.skuId === 'number' &&
+        typeof line.productId === 'number' &&
+        typeof line.title === 'string' &&
+        typeof line.productType === 'string' &&
+        typeof line.coverUrl === 'string' &&
+        typeof line.skuName === 'string' &&
+        (typeof line.originalPriceCents === 'number' || typeof line.unitPriceCents === 'number') &&
+        typeof line.quantity === 'number'
+      ))
+      .map(normalizeStoredCartLine);
+  } catch {
+    return [];
+  }
+}
+
 function errorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
+    if (isPurchaseLimitError(error)) return PURCHASE_LIMIT_MESSAGE;
     return error.message.length > 140 ? '操作失败，请稍后重试。' : error.message;
   }
   return '操作失败，请稍后重试。';
+}
+
+function rawErrorText(error: unknown) {
+  return error instanceof Error ? error.message : '';
+}
+
+function isInsufficientPointsError(error: unknown) {
+  return rawErrorText(error).toLowerCase().includes('not enough points')
+    || rawErrorText(error).includes('POINTS_NOT_ENOUGH');
+}
+
+function isPurchaseLimitError(error: unknown) {
+  const text = rawErrorText(error).toLowerCase();
+  return text.includes('purchase_limit_exceeded')
+    || text.includes('限购商品')
+    || text.includes('超出购买数量')
+    || text.includes('limited item')
+    || text.includes('allows only')
+    || text.includes('limit per user');
+}
+
+function cartPurchaseLimitItemMessages(items: CartLine[]) {
+  const overflowItems = items.filter((item) => item.limited && item.quantity > cartQuantityLimit(item));
+  const affectedItems = overflowItems.length
+    ? overflowItems
+    : items.filter((item) => item.limited);
+
+  return affectedItems.reduce<Record<number, string>>((messages, item) => {
+    messages[item.skuId] = '该限购商品已超出购买数量';
+    return messages;
+  }, {});
 }
 
 function profileWithRoles(data: AuthResponse): Profile {
@@ -145,8 +342,55 @@ function profileWithRoles(data: AuthResponse): Profile {
   };
 }
 
-function avatarInitial(profile: Profile | null) {
-  return profile?.username.trim().slice(0, 1).toUpperCase() || 'G';
+function clearStoredAuth() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+function persistStoredAuth(accessToken: string, profile: Profile, expiresAt: number) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, profile, expiresAt }));
+}
+
+function loadStoredAuth(): StoredAuth | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
+    if (
+      typeof parsed.accessToken !== 'string' ||
+      !parsed.accessToken ||
+      typeof parsed.expiresAt !== 'number' ||
+      !parsed.profile ||
+      typeof parsed.profile.id !== 'number'
+    ) {
+      clearStoredAuth();
+      return null;
+    }
+    if (parsed.expiresAt <= Date.now()) {
+      clearStoredAuth();
+      return null;
+    }
+    return parsed as StoredAuth;
+  } catch {
+    clearStoredAuth();
+    return null;
+  }
+}
+
+function persistAuthResponse(data: AuthResponse) {
+  const profile = profileWithRoles(data);
+  const expiresAt = Date.now() + Math.max(0, data.expiresIn) * 1000;
+  persistStoredAuth(data.accessToken, profile, expiresAt);
+  return profile;
+}
+
+function updateStoredProfile(profile: Profile) {
+  const stored = loadStoredAuth();
+  if (stored) {
+    persistStoredAuth(stored.accessToken, profile, stored.expiresAt);
+  }
 }
 
 function parseRoute(path = window.location.pathname): AppRoute {
@@ -196,9 +440,25 @@ export function App() {
   const [readerData, setReaderData] = useState<ReaderResponse | null>(null);
   const [readerLoading, setReaderLoading] = useState(false);
   const [readerError, setReaderError] = useState('');
-  const [token, setToken] = useState('');
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
+  const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
   const [, setNotice] = useState('');
+  const [cartItems, setCartItems] = useState<CartLine[]>(() => loadStoredCart(cartStorageKey(null)));
+  const [selectedCartSkuIds, setSelectedCartSkuIds] = useState<Set<number>>(() => cartSkuIdSet(loadStoredCart(cartStorageKey(null))));
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartMessage, setCartMessage] = useState('');
+  const [cartItemMessages, setCartItemMessages] = useState<Record<number, string>>({});
+  const [cartToast, setCartToast] = useState('');
+  const [addingSkuId, setAddingSkuId] = useState<number | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
+  const [insufficientPointsOpen, setInsufficientPointsOpen] = useState(false);
+  const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [rechargeLoadingKey, setRechargeLoadingKey] = useState('');
+  const [rechargePaymentLoading, setRechargePaymentLoading] = useState(false);
+  const [rechargeMessage, setRechargeMessage] = useState('');
+  const [pendingRechargePayment, setPendingRechargePayment] = useState<PendingRechargePayment | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
@@ -208,11 +468,22 @@ export function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const accountCloseTimer = useRef<number | null>(null);
+  const cartStorageKeyRef = useRef(cartStorageKey(null));
+  const cartToastTimer = useRef<number | null>(null);
 
   const isVip = useMemo(() => profile?.roles.includes('VIP') ?? false, [profile]);
   const activeMeta = sections.find((section) => section.key === activeSection) ?? sections[0];
   const activePage = activeSection === 'MEMBER' ? productPage : workPage;
   const totalPages = Math.max(1, Math.ceil((activePage.total || activePage.items.length) / PAGE_SIZE));
+  const cartItemCount = cartQuantityTotal(cartItems);
+  const selectedCartItems = useMemo(
+    () => cartItems.filter((item) => selectedCartSkuIds.has(item.skuId)),
+    [cartItems, selectedCartSkuIds]
+  );
+  const selectedCartItemCount = cartQuantityTotal(selectedCartItems);
+  const selectedCartOriginalTotalCents = selectedCartItems.reduce((total, item) => total + item.originalPriceCents * item.quantity, 0);
+  const selectedCartTotalCents = selectedCartItems.reduce((total, item) => total + cartUnitPriceCents(item, isVip) * item.quantity, 0);
+  const selectedCartDiscountCents = Math.max(0, selectedCartOriginalTotalCents - selectedCartTotalCents);
 
   useEffect(() => {
     const onPopState = () => setRoute(parseRoute());
@@ -224,7 +495,47 @@ export function App() {
     if (accountCloseTimer.current) {
       window.clearTimeout(accountCloseTimer.current);
     }
+    if (cartToastTimer.current) {
+      window.clearTimeout(cartToastTimer.current);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+
+    api<Profile>('/api/v1/users/me', {}, token)
+      .then((nextProfile) => {
+        if (!active) return;
+        setProfile(nextProfile);
+        updateStoredProfile(nextProfile);
+      })
+      .catch(() => {
+        if (!active) return;
+        clearStoredAuth();
+        setToken('');
+        setProfile(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    const nextKey = cartStorageKey(profile);
+    const nextCartItems = loadStoredCart(nextKey);
+    cartStorageKeyRef.current = nextKey;
+    setCartItems(nextCartItems);
+    setSelectedCartSkuIds(cartSkuIdSet(nextCartItems));
+    setCartMessage('');
+    setCartItemMessages({});
+    setPendingPayment(null);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    window.localStorage.setItem(cartStorageKeyRef.current, JSON.stringify(cartItems));
+  }, [cartItems]);
 
   useEffect(() => {
     if (route.kind !== 'list') return;
@@ -329,6 +640,23 @@ export function App() {
     }
   }
 
+  function browseMemberGoods() {
+    setCartOpen(false);
+    switchSection('MEMBER');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function showCartToast(message: string) {
+    setCartToast(message);
+    if (cartToastTimer.current) {
+      window.clearTimeout(cartToastTimer.current);
+    }
+    cartToastTimer.current = window.setTimeout(() => {
+      setCartToast('');
+      cartToastTimer.current = null;
+    }, 1000);
+  }
+
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmittedKeyword(searchDraft.trim());
@@ -349,6 +677,35 @@ export function App() {
     }
   }
 
+  function openRecharge() {
+    if (!token) {
+      openAuth('login');
+      return;
+    }
+    setRechargeMessage('');
+    setRechargeOpen(true);
+    setAccountOpen(false);
+  }
+
+  function closeRecharge() {
+    if (!rechargeLoadingKey && !rechargePaymentLoading) {
+      setRechargeOpen(false);
+      setRechargeMessage('');
+    }
+  }
+
+  function openRechargeFromInsufficientPoints() {
+    setInsufficientPointsOpen(false);
+    openRecharge();
+  }
+
+  async function refreshProfile() {
+    if (!token) return;
+    const nextProfile = await api<Profile>('/api/v1/users/me', {}, token);
+    setProfile(nextProfile);
+    updateStoredProfile(nextProfile);
+  }
+
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthLoading(true);
@@ -363,8 +720,9 @@ export function App() {
           ...(isRegister ? { username: authUsername.trim() } : {})
         })
       });
+      const nextProfile = persistAuthResponse(data);
       setToken(data.accessToken);
-      setProfile(profileWithRoles(data));
+      setProfile(nextProfile);
       setAuthOpen(false);
       setAuthPassword('');
       setAuthError('');
@@ -409,29 +767,299 @@ export function App() {
       await api(`/api/v1/chapters/${chapter.id}/purchase`, { method: 'POST' }, token);
       setNotice(`兑换成功，消耗 ${chapter.pricePoints} 积分；该章节已永久解锁。`);
       openChapter(chapter);
-    } catch {
+    } catch (error) {
+      if (isInsufficientPointsError(error)) {
+        setInsufficientPointsOpen(true);
+        return;
+      }
       setNotice(`兑换失败：该章节需要 ${chapter.pricePoints} 积分。VIP 可免费阅读，普通用户兑换后永久可读。`);
     }
   }
 
-  async function createVipOrder() {
+  async function purchaseRechargeOption(option: RechargeOption) {
     if (!token) {
       setNotice('请先登录。');
       openAuth('login');
       return;
     }
+    setRechargeLoadingKey(option.id);
+    setRechargeMessage('');
+    setPendingRechargePayment(null);
     try {
-      const order = await api<{ paymentNo: string }>('/api/v1/vip/orders', { method: 'POST' }, token);
-      setNotice(`VIP 订单已创建，支付号：${order.paymentNo}`);
-      setAccountOpen(false);
+      const order = option.type === 'VIP'
+        ? await api<OrderView>('/api/v1/vip/orders', { method: 'POST' }, token)
+        : await api<OrderView>('/api/v1/orders/points', {
+            method: 'POST',
+            body: JSON.stringify({ amountCents: option.amountCents })
+          }, token);
+      setPendingRechargePayment({
+        orderNo: order.orderNo,
+        paymentNo: order.paymentNo,
+        amountCents: order.totalCents ?? option.amountCents,
+        status: order.status,
+        optionTitle: option.title,
+        successMessage: option.type === 'VIP' ? 'VIP 已开通。' : `已充值 ${option.points} 积分。`
+      });
+      setRechargeMessage('订单已创建，请确认支付。');
     } catch (error) {
-      setNotice(errorMessage(error));
+      setRechargeMessage(errorMessage(error));
+    } finally {
+      setRechargeLoadingKey('');
     }
   }
 
+  async function confirmRechargePayment() {
+    if (!pendingRechargePayment || rechargePaymentLoading) return;
+    if (!token) {
+      setRechargeOpen(false);
+      openAuth('login');
+      return;
+    }
+
+    setRechargePaymentLoading(true);
+    setRechargeMessage('');
+    try {
+      await paymentGateway.confirmMockPayment(pendingRechargePayment.paymentNo, token);
+      await refreshProfile();
+      setRechargeMessage(pendingRechargePayment.successMessage);
+      setPendingRechargePayment(null);
+    } catch (error) {
+      setRechargeMessage(errorMessage(error));
+    } finally {
+      setRechargePaymentLoading(false);
+    }
+  }
+
+  async function addProductToCart(product: Product, sku: ProductSku | undefined = product.skus[0]) {
+    if (!sku) {
+      setCartMessage('该商品暂无可购买规格。');
+      showCartToast('该商品暂无可购买规格');
+      return;
+    }
+
+    const line = createCartLine(product, sku);
+    const alreadyAtLimit = product.limited && cartItems.some((item) => (
+      item.skuId === line.skuId && item.quantity >= cartQuantityLimit(item)
+    ));
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages((messages) => {
+      const next = { ...messages };
+      delete next[line.skuId];
+      return next;
+    });
+    setSelectedCartSkuIds((selected) => new Set(selected).add(line.skuId));
+    setAddingSkuId(sku.id);
+    setCartItems((items) => {
+      const existing = items.find((item) => item.skuId === line.skuId);
+      if (!existing) return [line, ...items];
+      return items.map((item) => (
+        item.skuId === line.skuId
+          ? {
+              ...item,
+              ...line,
+              quantity: normalizeQuantity(item.quantity + line.quantity, line)
+            }
+          : item
+      ));
+    });
+    showCartToast(alreadyAtLimit ? `限购商品「${product.title}」最多 1 件` : '已加入购物车');
+
+    if (!token) {
+      setAddingSkuId(null);
+      return;
+    }
+
+    try {
+      await api('/api/v1/cart/items', {
+        method: 'POST',
+        body: JSON.stringify({ skuId: sku.id, quantity: line.quantity })
+      }, token);
+    } catch (error) {
+      if (isPurchaseLimitError(error)) {
+        setCartMessage('');
+        setCartItemMessages(cartPurchaseLimitItemMessages([line]));
+      } else {
+        setCartMessage(`已保存在本地购物车；${errorMessage(error)}`);
+      }
+    } finally {
+      setAddingSkuId(null);
+    }
+  }
+
+  async function checkoutCart() {
+    if (!cartItems.length || !selectedCartItems.length || checkoutLoading) return;
+    if (selectedCartItems.some((item) => item.limited && item.quantity > cartQuantityLimit(item))) {
+      setCartMessage('');
+      setCartItemMessages(cartPurchaseLimitItemMessages(selectedCartItems));
+      return;
+    }
+    if (!token) {
+      setCartOpen(false);
+      openAuth('login');
+      return;
+    }
+
+    setCheckoutLoading(true);
+    setCartMessage('');
+    setCartItemMessages({});
+    try {
+      const order = await api<OrderView>('/api/v1/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: selectedCartItems.map((item) => ({ skuId: item.skuId, quantity: item.quantity }))
+        })
+      }, token);
+      setPendingPayment({
+        orderNo: order.orderNo,
+        paymentNo: order.paymentNo,
+        amountCents: order.totalCents ?? selectedCartTotalCents,
+        status: order.status,
+        itemSkuIds: selectedCartItems.map((item) => item.skuId)
+      });
+      setCartMessage('订单已创建，请确认支付。');
+    } catch (error) {
+      const message = errorMessage(error);
+      if (
+        isPurchaseLimitError(error)
+          || message === PURCHASE_LIMIT_MESSAGE
+          || (selectedCartItems.some((item) => item.limited) && message === '操作失败，请稍后重试。')
+      ) {
+        setCartMessage('');
+        setCartItemMessages(cartPurchaseLimitItemMessages(selectedCartItems));
+      } else {
+        setCartMessage(message);
+      }
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }
+
+  async function confirmMockPayment() {
+    if (!pendingPayment || paymentLoading) return;
+    if (!token) {
+      setCartOpen(false);
+      openAuth('login');
+      return;
+    }
+
+    setPaymentLoading(true);
+    setCartMessage('');
+    setCartItemMessages({});
+    try {
+      await paymentGateway.confirmMockPayment(pendingPayment.paymentNo, token);
+      const paidSkuIds = new Set(pendingPayment.itemSkuIds ?? cartItems.map((item) => item.skuId));
+      const remainingItems = cartItems.filter((item) => !paidSkuIds.has(item.skuId));
+      setCartItems(remainingItems);
+      setSelectedCartSkuIds((selected) => {
+        const next = new Set<number>();
+        for (const skuId of selected) {
+          if (!paidSkuIds.has(skuId) && remainingItems.some((item) => item.skuId === skuId)) {
+            next.add(skuId);
+          }
+        }
+        return next;
+      });
+      setPendingPayment(null);
+      setCartMessage('');
+      setCartItemMessages({});
+      setCartOpen(remainingItems.length > 0);
+      showCartToast('支付成功');
+    } catch (error) {
+      setCartMessage(errorMessage(error));
+    } finally {
+      setPaymentLoading(false);
+    }
+  }
+
+  function changeCartQuantity(skuId: number, quantity: number) {
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages((messages) => {
+      const next = { ...messages };
+      delete next[skuId];
+      return next;
+    });
+    if (quantity <= 0) {
+      setSelectedCartSkuIds((selected) => {
+        const next = new Set(selected);
+        next.delete(skuId);
+        return next;
+      });
+    }
+    setCartItems((items) => items.flatMap((item) => {
+      if (item.skuId !== skuId) return [item];
+      if (quantity <= 0) return [];
+      return [{ ...item, quantity: normalizeQuantity(quantity, item) }];
+    }));
+  }
+
+  function toggleCartItemSelected(skuId: number) {
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages((messages) => {
+      const next = { ...messages };
+      delete next[skuId];
+      return next;
+    });
+    setSelectedCartSkuIds((selected) => {
+      const next = new Set(selected);
+      if (next.has(skuId)) {
+        next.delete(skuId);
+      } else {
+        next.add(skuId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllCartItemsSelected() {
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages({});
+    setSelectedCartSkuIds((selected) => (
+      cartItems.length > 0 && cartItems.every((item) => selected.has(item.skuId))
+        ? new Set()
+        : cartSkuIdSet(cartItems)
+    ));
+  }
+
+  function removeCartItem(skuId: number) {
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages((messages) => {
+      const next = { ...messages };
+      delete next[skuId];
+      return next;
+    });
+    setSelectedCartSkuIds((selected) => {
+      const next = new Set(selected);
+      next.delete(skuId);
+      return next;
+    });
+    setCartItems((items) => items.filter((item) => item.skuId !== skuId));
+  }
+
+  function removeSelectedCartItems() {
+    if (!selectedCartSkuIds.size) return;
+    setPendingPayment(null);
+    setCartMessage('');
+    setCartItemMessages((messages) => {
+      const next = { ...messages };
+      for (const skuId of selectedCartSkuIds) {
+        delete next[skuId];
+      }
+      return next;
+    });
+    setCartItems((items) => items.filter((item) => !selectedCartSkuIds.has(item.skuId)));
+    setSelectedCartSkuIds(new Set());
+  }
+
   function logout() {
+    clearStoredAuth();
     setToken('');
     setProfile(null);
+    setPendingPayment(null);
     setAccountOpen(false);
     setNotice('已退出登录。');
   }
@@ -465,54 +1093,66 @@ export function App() {
             </button>
           ))}
         </nav>
-        <div
-          className={`accountMenu ${accountOpen ? 'isOpen' : ''}`}
-          onMouseEnter={openAccountMenu}
-          onMouseLeave={closeAccountMenuSoon}
-        >
+        <div className="headerActions">
           <button
-            className="accountTrigger"
+            className={`cartTrigger ${cartItemCount ? 'hasItems' : ''}`}
             type="button"
-            aria-haspopup="menu"
-            aria-expanded={accountOpen}
-            onClick={() => setAccountOpen((open) => !open)}
-            onFocus={openAccountMenu}
+            aria-label={`打开购物车，当前 ${cartItemCount} 件商品`}
+            onClick={() => setCartOpen(true)}
           >
-            <span className={`avatar ${profile ? 'signed' : ''}`}>
-              {profile ? avatarInitial(profile) : <UserRound size={18} />}
-            </span>
-            <span>{profile ? profile.username : '登录'}</span>
-            <ChevronDown size={15} />
+            <ShoppingBag size={18} />
+            <span>购物车</span>
+            {cartItemCount > 0 && <b>{cartItemCount}</b>}
           </button>
+          <div
+            className={`accountMenu ${accountOpen ? 'isOpen' : ''}`}
+            onMouseEnter={openAccountMenu}
+            onMouseLeave={closeAccountMenuSoon}
+          >
+            <button
+              className="accountTrigger"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={accountOpen}
+              onClick={() => setAccountOpen((open) => !open)}
+              onFocus={openAccountMenu}
+            >
+              <span className="avatar">
+                <UserRound size={18} />
+              </span>
+              <span>{profile ? profile.username : '登录'}</span>
+              <ChevronDown size={15} />
+            </button>
 
-          <div className="accountDropdown" role="menu">
-            {profile ? (
-              <>
-                <div className="accountSummary">
-                  <b>{profile.username}</b>
-                  <span>{profile.email}</span>
-                  <small>{profile.points} 积分 · {isVip ? 'VIP 用户' : '普通用户'}</small>
-                </div>
-                <button type="button" role="menuitem" className="dropdownAction" onClick={createVipOrder}>
-                  <Crown size={16} /> {isVip ? '续费 VIP 30元/月' : '开通 VIP 30元/月'}
-                </button>
-                <button type="button" role="menuitem" className="dropdownAction" onClick={checkin}>
-                  <Gift size={16} /> 每日签到
-                </button>
-                <button type="button" role="menuitem" className="dropdownAction muted" onClick={logout}>
-                  <LogOut size={16} /> 退出登录
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" role="menuitem" className="dropdownAction" onClick={() => openAuth('login')}>
-                  <LogIn size={16} /> 登录
-                </button>
-                <button type="button" role="menuitem" className="dropdownAction" onClick={() => openAuth('register')}>
-                  <UserPlus size={16} /> 注册
-                </button>
-              </>
-            )}
+            <div className="accountDropdown" role="menu">
+              {profile ? (
+                <>
+                  <div className="accountSummary">
+                    <b>{profile.username}</b>
+                    <span>{profile.email}</span>
+                    <small>{profile.points} 积分 · {isVip ? 'VIP 用户' : '普通用户'}</small>
+                  </div>
+                  <button type="button" role="menuitem" className="dropdownAction" onClick={openRecharge}>
+                    <Coins size={16} /> 积分充值 / VIP
+                  </button>
+                  <button type="button" role="menuitem" className="dropdownAction" onClick={checkin}>
+                    <Gift size={16} /> 每日签到
+                  </button>
+                  <button type="button" role="menuitem" className="dropdownAction muted" onClick={logout}>
+                    <LogOut size={16} /> 退出登录
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" role="menuitem" className="dropdownAction" onClick={() => openAuth('login')}>
+                    <LogIn size={16} /> 登录
+                  </button>
+                  <button type="button" role="menuitem" className="dropdownAction" onClick={() => openAuth('register')}>
+                    <UserPlus size={16} /> 注册
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -545,7 +1185,13 @@ export function App() {
             </div>
 
             {activeSection === 'MEMBER' ? (
-              <ProductResultList products={productPage.items} loading={listLoading} onOpen={(product) => navigate(`/products/${product.id}`)} />
+              <ProductResultList
+                addingSkuId={addingSkuId}
+                products={productPage.items}
+                loading={listLoading}
+                onAddToCart={addProductToCart}
+                onOpen={(product) => navigate(`/products/${product.id}`)}
+              />
             ) : (
               <WorkResultList works={workPage.items} loading={listLoading} onOpen={(work) => navigate(`/works/${work.id}`)} />
             )}
@@ -578,7 +1224,44 @@ export function App() {
           onPurchaseChapter={purchaseChapter}
         />
       ) : (
-        <ProductDetailPage product={detailProduct} onBack={showList} />
+        <ProductDetailPage
+          addingSkuId={addingSkuId}
+          product={detailProduct}
+          onAddToCart={addProductToCart}
+          onBack={showList}
+        />
+      )}
+
+      {cartOpen && (
+        <CartPanel
+          checkoutLoading={checkoutLoading}
+          discountCents={selectedCartDiscountCents}
+          isVip={isVip}
+          itemMessages={cartItemMessages}
+          items={cartItems}
+          message={cartMessage}
+          originalTotalCents={selectedCartOriginalTotalCents}
+          selectedItemCount={selectedCartItemCount}
+          selectedSkuIds={selectedCartSkuIds}
+          totalCents={selectedCartTotalCents}
+          onBrowseMemberGoods={browseMemberGoods}
+          onChangeQuantity={changeCartQuantity}
+          onCheckout={checkoutCart}
+          onConfirmMockPayment={confirmMockPayment}
+          onClose={() => setCartOpen(false)}
+          onRemove={removeCartItem}
+          onRemoveSelected={removeSelectedCartItems}
+          onToggleAll={toggleAllCartItemsSelected}
+          onToggleItem={toggleCartItemSelected}
+          paymentLoading={paymentLoading}
+          pendingPayment={pendingPayment}
+        />
+      )}
+
+      {cartToast && (
+        <div className="cartToast" role="status" aria-live="polite">
+          {cartToast}
+        </div>
       )}
 
       {authOpen && (
@@ -646,7 +1329,113 @@ export function App() {
           </section>
         </div>
       )}
+
+      {insufficientPointsOpen && (
+        <InsufficientPointsDialog
+          onClose={() => setInsufficientPointsOpen(false)}
+          onRecharge={openRechargeFromInsufficientPoints}
+        />
+      )}
+
+      {rechargeOpen && (
+        <RechargeDialog
+          loadingKey={rechargeLoadingKey}
+          message={rechargeMessage}
+          options={rechargeOptions}
+          paymentLoading={rechargePaymentLoading}
+          pendingPayment={pendingRechargePayment}
+          profile={profile}
+          onClose={closeRecharge}
+          onConfirmPayment={confirmRechargePayment}
+          onSelect={purchaseRechargeOption}
+        />
+      )}
     </main>
+  );
+}
+
+function InsufficientPointsDialog({
+  onClose,
+  onRecharge
+}: {
+  onClose: () => void;
+  onRecharge: () => void;
+}) {
+  return (
+    <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && onClose()}>
+      <section className="insufficientDialog" role="dialog" aria-modal="true" aria-labelledby="points-title">
+        <button className="modalClose" type="button" aria-label="关闭积分不足提示" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <Coins size={28} />
+        <h2 id="points-title">积分不足请充值</h2>
+        <button type="button" onClick={onRecharge}>去充值</button>
+      </section>
+    </div>
+  );
+}
+
+function RechargeDialog({
+  loadingKey,
+  message,
+  options,
+  paymentLoading,
+  pendingPayment,
+  profile,
+  onClose,
+  onConfirmPayment,
+  onSelect
+}: {
+  loadingKey: string;
+  message: string;
+  options: RechargeOption[];
+  paymentLoading: boolean;
+  pendingPayment: PendingRechargePayment | null;
+  profile: Profile | null;
+  onClose: () => void;
+  onConfirmPayment: () => void;
+  onSelect: (option: RechargeOption) => void;
+}) {
+  return (
+    <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && onClose()}>
+      <section className="rechargeDialog" role="dialog" aria-modal="true" aria-labelledby="recharge-title">
+        <button className="modalClose" type="button" aria-label="关闭充值窗口" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <header>
+          <p className="eyebrow">POINTS · VIP</p>
+          <h2 id="recharge-title">充值中心</h2>
+          {profile && <small>当前 {profile.points} 积分 · {profile.roles.includes('VIP') ? 'VIP 用户' : '普通用户'}</small>}
+        </header>
+        <div className="rechargeGrid">
+          {options.map((option) => {
+            const loading = loadingKey === option.id;
+            return (
+              <button
+                className={`rechargeOption ${option.type === 'VIP' ? 'vip' : ''}`}
+                disabled={Boolean(pendingPayment) || (Boolean(loadingKey) && !loading)}
+                key={option.id}
+                type="button"
+                onClick={() => onSelect(option)}
+              >
+                {option.type === 'VIP' ? <Crown size={20} /> : <Coins size={20} />}
+                <span>{option.title}</span>
+                <small>{option.caption}</small>
+                <b>{loading ? '生成订单中...' : pendingPayment ? '待支付中' : '生成支付订单'}</b>
+              </button>
+            );
+          })}
+        </div>
+        {pendingPayment && (
+          <PaymentPrompt
+            loading={paymentLoading}
+            payment={pendingPayment}
+            onConfirm={onConfirmPayment}
+          />
+        )}
+        {message && <p className="rechargeMessage">{message}</p>}
+      </section>
+    </div>
   );
 }
 
@@ -673,25 +1462,47 @@ function WorkResultList({ works, loading, onOpen }: { works: Work[]; loading: bo
   );
 }
 
-function ProductResultList({ products, loading, onOpen }: { products: Product[]; loading: boolean; onOpen: (product: Product) => void }) {
+function ProductResultList({
+  addingSkuId,
+  products,
+  loading,
+  onAddToCart,
+  onOpen
+}: {
+  addingSkuId: number | null;
+  products: Product[];
+  loading: boolean;
+  onAddToCart: (product: Product, sku?: ProductSku) => void;
+  onOpen: (product: Product) => void;
+}) {
   if (loading) return <div className="emptyState">正在加载会员购...</div>;
   if (!products.length) return <div className="emptyState">会员购没有匹配结果。</div>;
 
   return (
     <div className="resultList">
-      {products.map((product) => (
-        <article className="resultCard" key={product.id}>
-          <button className="resultCover" type="button" onClick={() => onOpen(product)} aria-label={`打开${product.title}详情`}>
-            <img src={product.coverUrl} alt={product.title} />
-          </button>
-          <button className="resultCopy" type="button" onClick={() => onOpen(product)}>
-            <span className="eyebrow">{product.productType}{product.limited ? ' · LIMITED' : ''}</span>
-            <h3>{product.title}</h3>
-            <p>{product.description}</p>
-            <small>{money(product.skus[0]?.vipPriceCents ?? product.skus[0]?.priceCents ?? 0)}</small>
-          </button>
-        </article>
-      ))}
+      {products.map((product) => {
+        const sku = product.skus[0];
+        const price = sku?.priceCents ?? 0;
+        return (
+          <article className="resultCard productCard" key={product.id}>
+            <button className="resultCover" type="button" onClick={() => onOpen(product)} aria-label={`打开${product.title}详情`}>
+              <img src={product.coverUrl} alt={product.title} />
+            </button>
+            <div className="resultCopy productCopy">
+              <span className="eyebrow">{product.productType}{product.limited ? ' · LIMITED' : ''}</span>
+              <h3>{product.title}</h3>
+              <p>{product.description}</p>
+              <small>{money(price)}</small>
+              <div className="productCardActions">
+                <button type="button" className="secondary" onClick={() => onOpen(product)}>查看详情</button>
+                <button type="button" disabled={!sku || addingSkuId === sku.id} onClick={() => onAddToCart(product, sku)}>
+                  <ShoppingBag size={15} /> {addingSkuId === sku?.id ? '加入中...' : '加入购物车'}
+                </button>
+              </div>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -855,8 +1666,224 @@ function ReaderPage({
   );
 }
 
-function ProductDetailPage({ product, onBack }: { product: Product | null; onBack: () => void }) {
+function CartPanel({
+  checkoutLoading,
+  discountCents,
+  isVip,
+  itemMessages,
+  items,
+  message,
+  originalTotalCents,
+  selectedItemCount,
+  selectedSkuIds,
+  totalCents,
+  onBrowseMemberGoods,
+  onChangeQuantity,
+  onCheckout,
+  onConfirmMockPayment,
+  onClose,
+  onRemove,
+  onRemoveSelected,
+  onToggleAll,
+  onToggleItem,
+  paymentLoading,
+  pendingPayment
+}: {
+  checkoutLoading: boolean;
+  discountCents: number;
+  isVip: boolean;
+  itemMessages: Record<number, string>;
+  items: CartLine[];
+  message: string;
+  originalTotalCents: number;
+  selectedItemCount: number;
+  selectedSkuIds: Set<number>;
+  totalCents: number;
+  onBrowseMemberGoods: () => void;
+  onChangeQuantity: (skuId: number, quantity: number) => void;
+  onCheckout: () => void;
+  onConfirmMockPayment: () => void;
+  onClose: () => void;
+  onRemove: (skuId: number) => void;
+  onRemoveSelected: () => void;
+  onToggleAll: () => void;
+  onToggleItem: (skuId: number) => void;
+  paymentLoading: boolean;
+  pendingPayment: PendingPayment | null;
+}) {
+  const selectedLineCount = items.filter((item) => selectedSkuIds.has(item.skuId)).length;
+  const allSelected = items.length > 0 && selectedLineCount === items.length;
+  const partiallySelected = selectedLineCount > 0 && !allSelected;
+
+  return (
+    <div className="cartLayer" onMouseDown={(event) => event.currentTarget === event.target && onClose()}>
+      <aside className="cartPanel" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+        <header className="cartHeader">
+          <div>
+            <p className="eyebrow">MEMBER GOODS</p>
+            <h2 id="cart-title">购物车</h2>
+          </div>
+          <button className="modalClose" type="button" aria-label="关闭购物车" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </header>
+
+        {message && <p className="cartMessage">{message}</p>}
+
+        {items.length ? (
+          <>
+            <div className="cartList">
+              {items.map((item) => {
+                const unitPriceCents = cartUnitPriceCents(item, isVip);
+                const lineOriginalCents = item.originalPriceCents * item.quantity;
+                const lineTotalCents = unitPriceCents * item.quantity;
+                const lineDiscountCents = cartLineDiscountCents(item, isVip) * item.quantity;
+                const itemMessage = itemMessages[item.skuId];
+                const selected = selectedSkuIds.has(item.skuId);
+
+                return (
+                  <article className={`cartItem${itemMessage ? ' hasItemMessage' : ''}${selected ? ' isSelected' : ''}`} key={cartLineKey(item)}>
+                    <button
+                      className={`cartSelectCircle${selected ? ' isSelected' : ''}`}
+                      type="button"
+                      aria-label={selected ? `取消选择 ${item.title}` : `选择 ${item.title}`}
+                      aria-pressed={selected}
+                      onClick={() => onToggleItem(item.skuId)}
+                    />
+                    <img src={item.coverUrl} alt={item.title} />
+                    <div className="cartItemMain">
+                      <p className="eyebrow">{item.productType}{item.limited ? ' · LIMITED' : ''}</p>
+                      <h3>{item.title}</h3>
+                      <small>{item.skuName} · 单价 {money(unitPriceCents)}</small>
+                      {lineDiscountCents > 0 && <small className="cartDiscount">VIP优惠 -{money(lineDiscountCents)}</small>}
+                      {itemMessage && <p className="cartItemMessage">{itemMessage}</p>}
+                      <div className="cartItemControls">
+                        <button
+                          type="button"
+                          aria-label={`减少 ${item.title} 数量`}
+                          onClick={() => onChangeQuantity(item.skuId, item.quantity - 1)}
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span>{item.quantity}</span>
+                        <button
+                          type="button"
+                          aria-label={`增加 ${item.title} 数量`}
+                          disabled={item.quantity >= cartQuantityLimit(item)}
+                          onClick={() => onChangeQuantity(item.skuId, item.quantity + 1)}
+                        >
+                          <Plus size={14} />
+                        </button>
+                        <button type="button" className="cartRemove" aria-label={`移除 ${item.title}`} onClick={() => onRemove(item.skuId)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="cartItemPrice">
+                      {lineDiscountCents > 0 && <del>{money(lineOriginalCents)}</del>}
+                      <b>{money(lineTotalCents)}</b>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            {pendingPayment && (
+              <PaymentPrompt
+                loading={paymentLoading}
+                payment={pendingPayment}
+                onConfirm={onConfirmMockPayment}
+              />
+            )}
+
+            <footer className="cartFooter">
+              <div className="cartBulkActions">
+                <button
+                  className={`cartSelectAllButton${allSelected ? ' isSelected' : ''}${partiallySelected ? ' isPartial' : ''}`}
+                  type="button"
+                  aria-label={allSelected ? '取消全选购物车商品' : '全选购物车商品'}
+                  aria-pressed={allSelected}
+                  disabled={!items.length}
+                  onClick={onToggleAll}
+                >
+                  <span>全选</span>
+                  <span className={`cartSelectCircle${allSelected ? ' isSelected' : ''}${partiallySelected ? ' isPartial' : ''}`} aria-hidden="true" />
+                </button>
+                {selectedLineCount > 0 && (
+                  <button type="button" className="cartRemoveSelected" onClick={onRemoveSelected}>删除所选</button>
+                )}
+              </div>
+              <div className="cartSummary">
+                {discountCents > 0 && <small>原价 {money(originalTotalCents)} · VIP优惠 -{money(discountCents)}</small>}
+                <span>已选 {selectedItemCount} 件 · 合计</span>
+                <strong>{money(totalCents)}</strong>
+              </div>
+              <button type="button" disabled={!selectedLineCount || checkoutLoading} onClick={onCheckout}>
+                {checkoutLoading ? '结算中...' : '结算'}
+              </button>
+            </footer>
+          </>
+        ) : (
+          <div className="cartEmpty">
+            <ShoppingBag size={26} />
+            <h3>购物车还是空的</h3>
+            <button type="button" onClick={onBrowseMemberGoods}>去逛会员购</button>
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function PaymentPrompt({
+  loading,
+  payment,
+  onConfirm
+}: {
+  loading: boolean;
+  payment: PendingPayment;
+  onConfirm: () => void;
+}) {
+  return (
+    <section className="paymentPrompt" aria-label="订单支付确认">
+      <div>
+        <p className="eyebrow">MOCK PAYMENT</p>
+        <h3>订单待支付</h3>
+      </div>
+      <dl className="paymentMeta">
+        <div>
+          <dt>订单号</dt>
+          <dd>{payment.orderNo}</dd>
+        </div>
+        <div>
+          <dt>支付号</dt>
+          <dd>{payment.paymentNo}</dd>
+        </div>
+        <div>
+          <dt>应付</dt>
+          <dd>{money(payment.amountCents)}</dd>
+        </div>
+      </dl>
+      <button type="button" disabled={loading} onClick={onConfirm}>
+        <Sparkles size={16} /> {loading ? '确认中...' : '模拟支付确认'}
+      </button>
+    </section>
+  );
+}
+
+function ProductDetailPage({
+  addingSkuId,
+  product,
+  onAddToCart,
+  onBack
+}: {
+  addingSkuId: number | null;
+  product: Product | null;
+  onAddToCart: (product: Product, sku?: ProductSku) => void;
+  onBack: () => void;
+}) {
   if (!product) return <div className="detailPage"><div className="emptyState">正在加载商品详情...</div></div>;
+  const primarySku = product.skus[0];
 
   return (
     <section className="detailPage">
@@ -871,11 +1898,18 @@ function ProductDetailPage({ product, onBack }: { product: Product | null; onBac
             {product.skus.map((sku) => (
               <div className="skuRow" key={sku.id}>
                 <span>{sku.skuName}</span>
-                <b>{money(sku.vipPriceCents || sku.priceCents)}</b>
+                <div className="skuPrice">
+                  <b>{money(sku.priceCents)}</b>
+                  {hasVipDiscount(sku.priceCents, sku.vipPriceCents) && (
+                    <small>{vipDiscountText(sku.priceCents, sku.vipPriceCents)}</small>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-          <button><ShoppingBag size={16} /> 加入购物车</button>
+          <button type="button" disabled={!primarySku || addingSkuId === primarySku.id} onClick={() => onAddToCart(product, primarySku)}>
+            <ShoppingBag size={16} /> {addingSkuId === primarySku?.id ? '加入中...' : '加入购物车'}
+          </button>
         </div>
       </article>
     </section>

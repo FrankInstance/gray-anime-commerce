@@ -55,6 +55,9 @@ public class PaymentApplicationService {
             if ("VIP".equals(order.getOrderType())) {
                 activateVip(order.getUserId());
             }
+            if ("POINTS".equals(order.getOrderType())) {
+                rechargePoints(order.getUserId(), order.getTotalPoints());
+            }
         }
         outbox("Payment", paymentNo, "PaymentConfirmed", "{\"paymentNo\":\"" + paymentNo + "\",\"orderNo\":\"" + payment.getOrderNo() + "\"}");
         return view(payment);
@@ -78,6 +81,19 @@ public class PaymentApplicationService {
                 ? LocalDateTime.now()
                 : user.getVipUntil();
         user.setVipUntil(base.plusMonths(1));
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+    }
+
+    private void rechargePoints(Long userId, Integer points) {
+        if (points == null || points <= 0) {
+            return;
+        }
+        AppUserRecord user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        user.setPoints((user.getPoints() == null ? 0 : user.getPoints()) + points);
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
     }
