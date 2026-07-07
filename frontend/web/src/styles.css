@@ -1506,6 +1506,32 @@ button.secondary,
     justify-items: start;
     text-align: left;
   }
+
+  .accountOrderActions {
+    justify-content: flex-start;
+  }
+
+  .orderDetailDialog {
+    padding: 22px 16px 18px;
+  }
+
+  .orderDetailHead,
+  .orderDetailFooter {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .orderDetailMeta {
+    grid-template-columns: 1fr;
+  }
+
+  .orderDetailItem {
+    grid-template-columns: 1fr;
+  }
+
+  .orderDetailItem strong {
+    white-space: normal;
+  }
 }
 
 /* Neon night theme */
@@ -2348,6 +2374,14 @@ button.secondary,
   text-align: right;
 }
 
+.accountOrderActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .accountOrderMeta b,
 .accountMiniItem b {
   color: var(--cyan);
@@ -2386,7 +2420,6 @@ button.secondary,
 
 .accountPayButton {
   min-height: 34px;
-  margin-top: 6px;
   padding: 0 18px;
   border-color: rgba(101, 245, 255, 0.46);
   background: linear-gradient(135deg, rgba(101, 245, 255, 0.32), rgba(255, 71, 212, 0.24));
@@ -2394,6 +2427,20 @@ button.secondary,
   box-shadow:
     0 0 14px rgba(101, 245, 255, 0.12),
     0 0 20px rgba(255, 71, 212, 0.1);
+}
+
+.accountDetailButton {
+  min-height: 34px;
+  padding: 0 13px;
+  border-color: rgba(101, 245, 255, 0.24);
+  background: rgba(101, 245, 255, 0.06);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.accountDetailButton:hover {
+  border-color: rgba(101, 245, 255, 0.48);
+  background: rgba(101, 245, 255, 0.12);
 }
 
 .accountMiniItem {
@@ -2457,6 +2504,144 @@ button.secondary,
   font-size: 32px;
   line-height: 1;
   text-shadow: 0 0 18px rgba(101, 245, 255, 0.3);
+}
+
+.orderDetailDialog {
+  position: relative;
+  display: grid;
+  gap: 16px;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 56px));
+  padding: 24px;
+  border: 1px solid rgba(101, 245, 255, 0.34);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.11), rgba(255, 71, 212, 0.08)),
+    rgba(6, 9, 24, 0.95);
+  box-shadow:
+    0 0 30px rgba(101, 245, 255, 0.16),
+    0 0 42px rgba(255, 71, 212, 0.16);
+  overflow: auto;
+}
+
+.orderDetailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 42px;
+}
+
+.orderDetailHead h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 34px;
+  line-height: 1;
+  text-shadow:
+    0 0 18px rgba(101, 245, 255, 0.34),
+    0 0 28px rgba(255, 71, 212, 0.22);
+}
+
+.orderDetailMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.orderDetailMeta div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(101, 245, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 7, 20, 0.42);
+}
+
+.orderDetailMeta dt,
+.orderDetailFooter span,
+.orderDetailItem span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.orderDetailMeta dd {
+  min-width: 0;
+  margin: 5px 0 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.orderDetailItems {
+  display: grid;
+  gap: 10px;
+}
+
+.orderDetailItems h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+}
+
+.orderDetailItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(101, 245, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 7, 20, 0.54);
+}
+
+.orderDetailItem div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.orderDetailItem b {
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.orderDetailItem small {
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.orderDetailItem strong {
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.34);
+}
+
+.orderDetailFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.orderDetailFooter div {
+  display: grid;
+  gap: 4px;
+}
+
+.orderDetailFooter b {
+  color: var(--cyan);
+  font-size: 28px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 16px rgba(101, 245, 255, 0.34);
+}
+
+.orderDetailFooter button {
+  min-width: 132px;
 }
 
 .chapterList {
