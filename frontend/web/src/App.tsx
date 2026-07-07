@@ -76,6 +76,7 @@ type RechargeOption = {
   caption: string;
 };
 type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
+type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
 type AppRoute =
   | { kind: 'list' }
   | { kind: 'account' }
@@ -93,6 +94,13 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: 'NOVEL', label: '轻小说' },
   { key: 'MANGA', label: '漫画' },
   { key: 'MEMBER', label: '会员购' }
+];
+
+const accountOrderFilters: { value: AccountOrderFilter; label: string }[] = [
+  { value: 'ALL', label: '全部' },
+  { value: 'PENDING_PAYMENT', label: '待支付' },
+  { value: 'PAID', label: '已完成' },
+  { value: 'CANCELLED', label: '已取消' }
 ];
 
 const rechargeOptions: RechargeOption[] = [
@@ -494,6 +502,7 @@ export function App() {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [accountPayingOrderNo, setAccountPayingOrderNo] = useState('');
+  const [accountOrderFilter, setAccountOrderFilter] = useState<AccountOrderFilter>('ALL');
   const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
   const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
   const [, setNotice] = useState('');
@@ -684,7 +693,7 @@ export function App() {
       return;
     }
     void loadAccountData();
-  }, [route.kind, token]);
+  }, [route.kind, token, accountOrderFilter]);
 
   function navigate(path: string) {
     window.history.pushState(null, '', path);
@@ -789,13 +798,17 @@ export function App() {
     updateStoredProfile(nextProfile);
   }
 
-  async function loadAccountData(showLoading = true) {
+  async function loadAccountData(showLoading = true, filter = accountOrderFilter) {
     if (!token) return;
     if (showLoading) setAccountLoading(true);
     setAccountError('');
+    const orderParams = new URLSearchParams({ page: '1', size: '20' });
+    if (filter !== 'ALL') {
+      orderParams.set('status', filter);
+    }
     try {
       const [orders, ledger] = await Promise.all([
-        api<PageResult<OrderView>>('/api/v1/orders?page=1&size=20', {}, token),
+        api<PageResult<OrderView>>(`/api/v1/orders?${orderParams.toString()}`, {}, token),
         api<PageResult<PointsLedgerView>>('/api/v1/users/me/points-ledger?page=1&size=20', {}, token)
       ]);
       setAccountOrders(orders.items);
@@ -1358,10 +1371,12 @@ export function App() {
           isVip={isVip}
           ledger={accountLedger}
           loading={accountLoading}
+          orderFilter={accountOrderFilter}
           orders={accountOrders}
           payingOrderNo={accountPayingOrderNo}
           profile={profile}
           onBack={showList}
+          onFilterChange={setAccountOrderFilter}
           onLogin={() => openAuth('login')}
           onPayOrder={payAccountOrder}
           onRecharge={openRecharge}
@@ -1983,10 +1998,12 @@ function AccountCenterPage({
   isVip,
   ledger,
   loading,
+  orderFilter,
   orders,
   payingOrderNo,
   profile,
   onBack,
+  onFilterChange,
   onLogin,
   onPayOrder,
   onRecharge
@@ -1995,10 +2012,12 @@ function AccountCenterPage({
   isVip: boolean;
   ledger: PointsLedgerView[];
   loading: boolean;
+  orderFilter: AccountOrderFilter;
   orders: OrderView[];
   payingOrderNo: string;
   profile: Profile | null;
   onBack: () => void;
+  onFilterChange: (filter: AccountOrderFilter) => void;
   onLogin: () => void;
   onPayOrder: (order: OrderView) => void;
   onRecharge: () => void;
@@ -2065,7 +2084,22 @@ function AccountCenterPage({
                 <div>
                   <h2>我的订单</h2>
                 </div>
-                {loading && <span>加载中...</span>}
+                <div className="accountOrderTools">
+                  {loading && <span>加载中...</span>}
+                  <div className="accountFilterBar" aria-label="订单筛选">
+                    {accountOrderFilters.map((filter) => (
+                      <button
+                        key={filter.value}
+                        type="button"
+                        className={orderFilter === filter.value ? 'isActive' : ''}
+                        aria-pressed={orderFilter === filter.value}
+                        onClick={() => onFilterChange(filter.value)}
+                      >
+                        {filter.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               {orders.length ? (
                 <div className="accountOrderList">
