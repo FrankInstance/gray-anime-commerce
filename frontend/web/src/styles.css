@@ -1474,6 +1474,25 @@ button.secondary,
     flex-direction: column;
   }
 
+  .accountPanelHead,
+  .accountOrderTools {
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  .accountPanelHead {
+    flex-direction: column;
+  }
+
+  .accountFilterBar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .accountFilterBar button {
+    padding: 0 6px;
+  }
+
   .accountStats {
     grid-template-columns: 1fr;
   }
@@ -2230,6 +2249,41 @@ button.secondary,
   margin: 0;
   color: #fff;
   font-size: 24px;
+}
+
+.accountOrderTools {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.accountFilterBar {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(101, 245, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(5, 7, 20, 0.48);
+}
+
+.accountFilterBar button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.accountFilterBar button:hover,
+.accountFilterBar button.isActive {
+  background: rgba(101, 245, 255, 0.14);
+  color: #fff;
+  transform: none;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.34);
 }
 
 .accountOrderList,
