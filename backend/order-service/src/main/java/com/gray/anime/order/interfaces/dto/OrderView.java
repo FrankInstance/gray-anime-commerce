@@ -11,6 +11,9 @@ public record OrderView(
         Integer totalPoints,
         String status,
         String paymentNo,
+        String paymentStatus,
+        String paymentChannel,
+        LocalDateTime paidAt,
         LocalDateTime createdAt,
         List<OrderItemView> items
 ) {

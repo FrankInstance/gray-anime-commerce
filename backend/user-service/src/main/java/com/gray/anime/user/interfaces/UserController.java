@@ -1,6 +1,7 @@
 package com.gray.anime.user.interfaces;
 
 import com.gray.anime.common.api.ApiResponse;
+import com.gray.anime.common.api.PageResult;
 import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.user.application.UserApplicationService;
 import com.gray.anime.user.interfaces.dto.*;
@@ -51,5 +52,14 @@ public class UserController {
     @PostMapping("/checkins")
     ApiResponse<CheckinResponse> checkin(HttpServletRequest request) {
         return ApiResponse.ok(service.checkin(CurrentUser.from(request)));
+    }
+
+    @GetMapping("/users/me/points-ledger")
+    ApiResponse<PageResult<PointsLedgerView>> pointsLedger(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size,
+            HttpServletRequest request
+    ) {
+        return ApiResponse.ok(service.pointsLedger(CurrentUser.from(request), page, size));
     }
 }

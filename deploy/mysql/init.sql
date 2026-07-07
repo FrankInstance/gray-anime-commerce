@@ -170,7 +170,8 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
   INDEX idx_orders_user (user_id),
-  INDEX idx_orders_created (created_at)
+  INDEX idx_orders_created (created_at),
+  INDEX idx_orders_status_created (status, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS order_item (

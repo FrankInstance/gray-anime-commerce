@@ -26,22 +26,26 @@ public class OrderApplicationService {
     private final PaymentMapper paymentMapper;
     private final OutboxEventMapper outboxMapper;
     private final SkuSnapshotMapper skuMapper;
+    private final ProductSnapshotMapper productMapper;
     private final ChapterSnapshotMapper chapterMapper;
     private final AppUserSnapshotMapper userMapper;
     private final ChapterEntitlementRecordMapper entitlementMapper;
+    private final PointsLedgerMapper pointsLedgerMapper;
     private final InventoryClient inventoryClient;
 
     public OrderApplicationService(OrderMapper orderMapper, OrderItemMapper itemMapper, PaymentMapper paymentMapper, OutboxEventMapper outboxMapper,
-                                   SkuSnapshotMapper skuMapper, ChapterSnapshotMapper chapterMapper, AppUserSnapshotMapper userMapper,
-                                   ChapterEntitlementRecordMapper entitlementMapper, InventoryClient inventoryClient) {
+                                   SkuSnapshotMapper skuMapper, ProductSnapshotMapper productMapper, ChapterSnapshotMapper chapterMapper, AppUserSnapshotMapper userMapper,
+                                   ChapterEntitlementRecordMapper entitlementMapper, PointsLedgerMapper pointsLedgerMapper, InventoryClient inventoryClient) {
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.paymentMapper = paymentMapper;
         this.outboxMapper = outboxMapper;
         this.skuMapper = skuMapper;
+        this.productMapper = productMapper;
         this.chapterMapper = chapterMapper;
         this.userMapper = userMapper;
         this.entitlementMapper = entitlementMapper;
+        this.pointsLedgerMapper = pointsLedgerMapper;
         this.inventoryClient = inventoryClient;
     }
 
@@ -54,7 +58,7 @@ public class OrderApplicationService {
         order.setOrderNo(orderNo);
         order.setUserId(user.id());
         order.setOrderType("PRODUCT");
-        order.setStatus("PENDING_PAYMENT");
+        order.setStatus(OrderStatus.PENDING_PAYMENT.name());
         order.setTotalCents(0);
         order.setTotalPoints(0);
         order.setCreatedAt(now);
@@ -74,7 +78,7 @@ public class OrderApplicationService {
             item.setItemType("SKU");
             item.setSkuId(sku.getId());
             item.setRefId(sku.getProductId());
-            item.setTitle(sku.getSkuName());
+            item.setTitle(productSkuTitle(sku));
             item.setQuantity(line.quantity());
             item.setUnitPriceCents(unitPrice);
             item.setUnitPoints(0);
@@ -100,7 +104,7 @@ public class OrderApplicationService {
         order.setOrderType("VIP");
         order.setTotalCents(3000);
         order.setTotalPoints(0);
-        order.setStatus("PENDING_PAYMENT");
+        order.setStatus(OrderStatus.PENDING_PAYMENT.name());
         order.setPaymentNo(createPayment(orderNo, user.id(), 3000));
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -125,7 +129,7 @@ public class OrderApplicationService {
         order.setOrderType("POINTS");
         order.setTotalCents(amountCents);
         order.setTotalPoints(points);
-        order.setStatus("PENDING_PAYMENT");
+        order.setStatus(OrderStatus.PENDING_PAYMENT.name());
         order.setPaymentNo(createPayment(orderNo, user.id(), amountCents));
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -171,8 +175,23 @@ public class OrderApplicationService {
         if (updated == 0) {
             throw new BizException("POINTS_NOT_ENOUGH", "Not enough points");
         }
+        if (price > 0) {
+            writePointsLedger(user.id(), -price, "CHAPTER_PURCHASE", "CHAPTER:" + user.id() + ":" + chapterId);
+        }
         grantChapter(user.id(), chapterId, "POINTS");
         return paidChapterOrder(user.id(), chapter, price, "POINTS");
+    }
+
+    public PageResult<OrderView> myOrders(CurrentUser user, long page, long size, String status) {
+        requireLogin(user);
+        LambdaQueryWrapper<OrderRecord> wrapper = new LambdaQueryWrapper<OrderRecord>()
+                .eq(OrderRecord::getUserId, user.id())
+                .orderByDesc(OrderRecord::getId);
+        if (status != null && !status.isBlank()) {
+            wrapper.eq(OrderRecord::getStatus, status.trim());
+        }
+        Page<OrderRecord> result = orderMapper.selectPage(Page.of(page, size), wrapper);
+        return new PageResult<>(result.getRecords().stream().map(this::orderView).toList(), page, size, result.getTotal());
     }
 
     public PageResult<OrderView> adminOrders(long page, long size, String status) {
@@ -190,9 +209,9 @@ public class OrderApplicationService {
         List<OrderRecord> today = orderMapper.selectList(new LambdaQueryWrapper<OrderRecord>()
                 .ge(OrderRecord::getCreatedAt, start)
                 .lt(OrderRecord::getCreatedAt, end));
-        long paid = today.stream().filter(o -> "PAID".equals(o.getStatus())).count();
-        int revenue = today.stream().filter(o -> "PAID".equals(o.getStatus())).mapToInt(o -> o.getTotalCents() == null ? 0 : o.getTotalCents()).sum();
-        int vipRevenue = today.stream().filter(o -> "PAID".equals(o.getStatus()) && "VIP".equals(o.getOrderType())).mapToInt(OrderRecord::getTotalCents).sum();
+        long paid = today.stream().filter(o -> OrderStatus.PAID.name().equals(o.getStatus())).count();
+        int revenue = today.stream().filter(o -> OrderStatus.PAID.name().equals(o.getStatus())).mapToInt(o -> o.getTotalCents() == null ? 0 : o.getTotalCents()).sum();
+        int vipRevenue = today.stream().filter(o -> OrderStatus.PAID.name().equals(o.getStatus()) && "VIP".equals(o.getOrderType())).mapToInt(OrderRecord::getTotalCents).sum();
         long syntheticVisitors = Math.max(128, today.size() * 41L + 326);
         return new DailyMetrics(today.size(), paid, revenue, vipRevenue, syntheticVisitors);
     }
@@ -206,7 +225,7 @@ public class OrderApplicationService {
         order.setOrderType("CHAPTER");
         order.setTotalCents(0);
         order.setTotalPoints(price);
-        order.setStatus("PAID");
+        order.setStatus(OrderStatus.PAID.name());
         order.setPaymentNo(null);
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -271,13 +290,65 @@ public class OrderApplicationService {
                 .eq(ChapterEntitlementRecord::getChapterId, chapterId)) > 0;
     }
 
+    private void writePointsLedger(Long userId, int amount, String reason, String bizKey) {
+        PointsLedgerRecord ledger = new PointsLedgerRecord();
+        ledger.setUserId(userId);
+        ledger.setAmount(amount);
+        ledger.setReason(reason);
+        ledger.setBizKey(bizKey);
+        ledger.setCreatedAt(LocalDateTime.now());
+        pointsLedgerMapper.insert(ledger);
+    }
+
     private OrderView orderView(OrderRecord order) {
         List<OrderItemView> items = itemMapper.selectList(new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, order.getId()))
                 .stream()
-                .map(i -> new OrderItemView(i.getItemType(), i.getRefId(), i.getSkuId(), i.getTitle(), i.getQuantity(), i.getUnitPriceCents(), i.getUnitPoints(), i.getReservationNo()))
+                .map(i -> new OrderItemView(i.getItemType(), i.getRefId(), i.getSkuId(), displayTitle(i), i.getQuantity(), i.getUnitPriceCents(), i.getUnitPoints(), i.getReservationNo()))
                 .toList();
+        PaymentRecord payment = paymentView(order);
         return new OrderView(order.getId(), order.getOrderNo(), order.getOrderType(), order.getTotalCents(), order.getTotalPoints(),
-                order.getStatus(), order.getPaymentNo(), order.getCreatedAt(), items);
+                order.getStatus(), order.getPaymentNo(),
+                payment == null ? null : payment.getStatus(),
+                payment == null ? null : payment.getChannel(),
+                payment == null ? null : payment.getConfirmedAt(),
+                order.getCreatedAt(), items);
+    }
+
+    private PaymentRecord paymentView(OrderRecord order) {
+        if (order.getPaymentNo() == null || order.getPaymentNo().isBlank()) {
+            return null;
+        }
+        return paymentMapper.selectOne(new LambdaQueryWrapper<PaymentRecord>()
+                .eq(PaymentRecord::getPaymentNo, order.getPaymentNo())
+                .last("limit 1"));
+    }
+
+    private String displayTitle(OrderItem item) {
+        if (!"SKU".equals(item.getItemType()) || item.getSkuId() == null) {
+            return item.getTitle();
+        }
+        SkuSnapshot sku = skuMapper.selectById(item.getSkuId());
+        if (sku == null) {
+            return item.getTitle();
+        }
+        String title = productSkuTitle(sku);
+        if (title == null || title.isBlank()) {
+            return item.getTitle();
+        }
+        return title;
+    }
+
+    private String productSkuTitle(SkuSnapshot sku) {
+        ProductSnapshot product = sku.getProductId() == null ? null : productMapper.selectById(sku.getProductId());
+        String productTitle = product == null ? null : product.getTitle();
+        String skuName = sku.getSkuName();
+        if (productTitle == null || productTitle.isBlank()) {
+            return skuName;
+        }
+        if (skuName == null || skuName.isBlank() || productTitle.contains(skuName)) {
+            return productTitle;
+        }
+        return productTitle + " · " + skuName;
     }
 
     private void outbox(String aggregateType, String aggregateId, String type, String payload) {

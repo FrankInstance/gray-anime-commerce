@@ -1400,6 +1400,18 @@ button.secondary,
     grid-column: 2;
     grid-row: 1;
   }
+
+  .accountStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .accountGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .accountPanelWide {
+    grid-row: auto;
+  }
 }
 
 @media (max-width: 620px) {
@@ -1451,6 +1463,29 @@ button.secondary,
     grid-column: 2;
     grid-row: 1;
     width: 100%;
+  }
+
+  .accountPage {
+    padding: 18px 14px 44px;
+  }
+
+  .accountHero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .accountStats {
+    grid-template-columns: 1fr;
+  }
+
+  .accountOrder {
+    grid-template-columns: 1fr;
+  }
+
+  .accountOrderMeta,
+  .accountMiniItem {
+    justify-items: start;
+    text-align: left;
   }
 }
 
@@ -2034,6 +2069,342 @@ button.secondary,
   aspect-ratio: 3 / 4;
 }
 
+.accountPage {
+  padding: 24px clamp(18px, 5vw, 64px) 64px;
+}
+
+.accountHero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.accountHero h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(38px, 7vw, 76px);
+  line-height: 0.95;
+  text-shadow:
+    0 0 18px rgba(101, 245, 255, 0.36),
+    0 0 36px rgba(255, 71, 212, 0.22);
+}
+
+.accountNotice {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 71, 212, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 71, 212, 0.08);
+  color: #ffd7f5;
+  font-weight: 850;
+}
+
+.accountStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.accountStats article,
+.accountPanel {
+  border: 1px solid rgba(101, 245, 255, 0.2);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.08), rgba(255, 71, 212, 0.05)),
+    rgba(6, 9, 24, 0.68);
+  box-shadow: 0 0 22px rgba(101, 245, 255, 0.08);
+}
+
+.accountStats article {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  min-height: 126px;
+  padding: 14px;
+}
+
+.accountStatCard {
+  align-content: start;
+}
+
+.accountPointsCard {
+  padding-bottom: 42px !important;
+}
+
+.accountVipStat.isInactive {
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.accountStats span,
+.accountPanelHead span,
+.accountOrder small,
+.accountOrderMeta small,
+.accountMiniItem small {
+  color: var(--muted);
+}
+
+.accountStats b {
+  color: #fff;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(101, 245, 255, 0.3);
+}
+
+.accountStats small {
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.accountTextButton {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 950;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.45);
+}
+
+.accountTextButton:hover {
+  color: #fff;
+  transform: none;
+}
+
+.accountRechargeButton {
+  min-height: 42px;
+  padding: 0 22px;
+  border-color: rgba(101, 245, 255, 0.58);
+  background: linear-gradient(135deg, rgba(101, 245, 255, 0.72), rgba(255, 71, 212, 0.78));
+  color: #fff;
+  box-shadow:
+    0 0 18px rgba(101, 245, 255, 0.18),
+    0 0 26px rgba(255, 71, 212, 0.18);
+}
+
+.accountGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.accountGridSingle {
+  grid-template-columns: 1fr;
+}
+
+.accountPanel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.accountPanelWide {
+  grid-row: span 2;
+}
+
+.accountGridSingle .accountPanelWide {
+  grid-row: auto;
+}
+
+.accountPanelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.accountPanelHead h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 24px;
+}
+
+.accountOrderList,
+.accountMiniList {
+  display: grid;
+  gap: 10px;
+}
+
+.accountOrder,
+.accountMiniItem {
+  border: 1px solid rgba(101, 245, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 7, 20, 0.54);
+}
+
+.accountOrder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+}
+
+.accountOrder h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.accountOrder small {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.accountPaymentInline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.accountPaymentInline span {
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid rgba(101, 245, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(101, 245, 255, 0.06);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.accountOrderMeta,
+.accountMiniItem {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+}
+
+.accountOrderMeta b,
+.accountMiniItem b {
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.34);
+}
+
+.accountOrderMeta span {
+  color: var(--acid);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.accountStatusPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  padding: 4px 7px;
+  border: 1px solid rgba(215, 255, 74, 0.28);
+  border-radius: 999px;
+  background: rgba(215, 255, 74, 0.08);
+}
+
+.accountStatusPill.status-cancelled {
+  border-color: rgba(255, 71, 212, 0.32);
+  background: rgba(255, 71, 212, 0.08);
+  color: #ffd7f5;
+}
+
+.accountStatusPill.status-pending_payment {
+  border-color: rgba(101, 245, 255, 0.28);
+  background: rgba(101, 245, 255, 0.08);
+  color: var(--cyan);
+}
+
+.accountPayButton {
+  min-height: 34px;
+  margin-top: 6px;
+  padding: 0 18px;
+  border-color: rgba(101, 245, 255, 0.46);
+  background: linear-gradient(135deg, rgba(101, 245, 255, 0.32), rgba(255, 71, 212, 0.24));
+  color: #fff;
+  box-shadow:
+    0 0 14px rgba(101, 245, 255, 0.12),
+    0 0 20px rgba(255, 71, 212, 0.1);
+}
+
+.accountMiniItem {
+  padding: 11px;
+}
+
+.accountMiniItem span {
+  max-width: 100%;
+  color: #fff;
+  overflow-wrap: anywhere;
+  font-weight: 900;
+}
+
+.pointsPositive {
+  color: var(--acid) !important;
+}
+
+.pointsNegative {
+  color: #ffd7f5 !important;
+}
+
+.accountEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px 14px;
+  border: 1px solid rgba(101, 245, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(5, 7, 20, 0.48);
+  color: var(--muted);
+  text-align: center;
+  font-weight: 850;
+}
+
+.accountLoginPrompt h2 {
+  margin: 0;
+  color: #fff;
+}
+
+.pointsLedgerDialog {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 56px));
+  padding: 24px;
+  border: 1px solid rgba(101, 245, 255, 0.34);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.1), rgba(255, 71, 212, 0.08)),
+    rgba(6, 9, 24, 0.94);
+  box-shadow:
+    0 0 30px rgba(101, 245, 255, 0.16),
+    0 0 42px rgba(255, 71, 212, 0.16);
+  overflow: auto;
+}
+
+.pointsLedgerDialog h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 32px;
+  line-height: 1;
+  text-shadow: 0 0 18px rgba(101, 245, 255, 0.3);
+}
+
 .chapterList {
   display: grid;
   gap: 10px;
@@ -2246,6 +2617,20 @@ button.secondary,
   background: rgba(6, 9, 24, 0.62);
   text-align: left;
   box-shadow: 0 0 18px rgba(101, 245, 255, 0.1);
+  cursor: pointer;
+}
+
+.rechargeOption:hover:not(:disabled),
+.rechargeOption:focus-visible {
+  border-color: rgba(101, 245, 255, 0.58);
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.12), rgba(255, 71, 212, 0.08)),
+    rgba(6, 9, 24, 0.72);
+  transform: translateY(-1px);
+}
+
+.rechargeOption:disabled {
+  cursor: default;
 }
 
 .rechargeOption svg {

@@ -55,7 +55,9 @@ type Profile = { id: number; email: string; username: string; roles: string[]; s
 type AuthMode = 'login' | 'register';
 type AuthResponse = { accessToken: string; expiresIn: number; profile: Profile; roles: string[] };
 type StoredAuth = { accessToken: string; profile: Profile; expiresAt: number };
-type OrderView = { orderNo: string; totalCents: number; status: string; paymentNo: string };
+type OrderItemView = { itemType: string; refId: number | null; skuId: number | null; title: string; quantity: number; unitPriceCents: number; unitPoints: number; reservationNo: string | null };
+type OrderView = { id: number; orderNo: string; orderType: string; totalCents: number; totalPoints: number; status: string; paymentNo: string | null; paymentStatus: string | null; paymentChannel: string | null; paidAt: string | null; createdAt: string; items: OrderItemView[] };
+type PointsLedgerView = { id: number; amount: number; reason: string; bizKey: string; createdAt: string };
 type PaymentView = { paymentNo: string; orderNo: string; amountCents: number; channel: string; status: string; confirmedAt: string | null };
 type PendingPayment = { orderNo: string; paymentNo: string; amountCents: number; status: string; itemSkuIds?: number[] };
 type PendingRechargePayment = PendingPayment & { optionTitle: string; successMessage: string };
@@ -76,6 +78,7 @@ type RechargeOption = {
 type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
 type AppRoute =
   | { kind: 'list' }
+  | { kind: 'account' }
   | { kind: 'work'; id: number }
   | { kind: 'reader'; workId: number; chapterId: number }
   | { kind: 'product'; id: number };
@@ -188,6 +191,51 @@ const paymentGateway: PaymentGateway = {
 
 function money(cents: number) {
   return `¥${(cents / 100).toFixed(2)}`;
+}
+
+function signedPoints(points: number) {
+  return `${points > 0 ? '+' : ''}${points}`;
+}
+
+function shortDateTime(value: string | null | undefined) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function orderTypeLabel(type: string) {
+  return ({
+    PRODUCT: '会员购商品',
+    VIP: 'VIP',
+    POINTS: '积分充值',
+    CHAPTER: '章节兑换'
+  } as Record<string, string>)[type] ?? type;
+}
+
+function orderStatusLabel(status: string) {
+  return ({
+    PENDING_PAYMENT: '待支付',
+    PAID: '已完成',
+    CANCELLED: '已取消'
+  } as Record<string, string>)[status] ?? status;
+}
+
+function paymentStatusLabel(status: string | null | undefined) {
+  if (!status) return '无支付单';
+  return ({
+    PENDING: '待确认',
+    CONFIRMED: '已确认',
+    CANCELLED: '已取消'
+  } as Record<string, string>)[status] ?? status;
+}
+
+function ledgerReasonLabel(reason: string) {
+  return ({
+    SIGN_IN: '每日签到',
+    POINTS_RECHARGE: '积分充值',
+    CHAPTER_PURCHASE: '章节兑换'
+  } as Record<string, string>)[reason] ?? reason;
 }
 
 function hasVipDiscount(priceCents: number, vipPriceCents: number) {
@@ -394,6 +442,7 @@ function updateStoredProfile(profile: Profile) {
 }
 
 function parseRoute(path = window.location.pathname): AppRoute {
+  if (path === '/account') return { kind: 'account' };
   const readerMatch = path.match(/^\/works\/(\d+)\/chapters\/(\d+)\/read$/);
   if (readerMatch) return { kind: 'reader', workId: Number(readerMatch[1]), chapterId: Number(readerMatch[2]) };
   const workMatch = path.match(/^\/works\/(\d+)$/);
@@ -440,6 +489,11 @@ export function App() {
   const [readerData, setReaderData] = useState<ReaderResponse | null>(null);
   const [readerLoading, setReaderLoading] = useState(false);
   const [readerError, setReaderError] = useState('');
+  const [accountOrders, setAccountOrders] = useState<OrderView[]>([]);
+  const [accountLedger, setAccountLedger] = useState<PointsLedgerView[]>([]);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [accountPayingOrderNo, setAccountPayingOrderNo] = useState('');
   const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
   const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
   const [, setNotice] = useState('');
@@ -617,6 +671,21 @@ export function App() {
     }
   }, [route, token]);
 
+  useEffect(() => {
+    if (route.kind !== 'account') return;
+    setDetailWork(null);
+    setDetailProduct(null);
+    setReaderData(null);
+    setReaderError('');
+    if (!token) {
+      setAccountOrders([]);
+      setAccountLedger([]);
+      setAccountError('请先登录后查看个人中心。');
+      return;
+    }
+    void loadAccountData();
+  }, [route.kind, token]);
+
   function navigate(path: string) {
     window.history.pushState(null, '', path);
     setRoute(parseRoute(path));
@@ -689,8 +758,13 @@ export function App() {
 
   function closeRecharge() {
     if (!rechargeLoadingKey && !rechargePaymentLoading) {
+      const hadPendingPayment = Boolean(pendingRechargePayment);
       setRechargeOpen(false);
       setRechargeMessage('');
+      setPendingRechargePayment(null);
+      if (hadPendingPayment && route.kind === 'account') {
+        void loadAccountData(false);
+      }
     }
   }
 
@@ -699,11 +773,38 @@ export function App() {
     openRecharge();
   }
 
+  function openAccountCenter() {
+    setAccountOpen(false);
+    if (!token) {
+      openAuth('login');
+      return;
+    }
+    navigate('/account');
+  }
+
   async function refreshProfile() {
     if (!token) return;
     const nextProfile = await api<Profile>('/api/v1/users/me', {}, token);
     setProfile(nextProfile);
     updateStoredProfile(nextProfile);
+  }
+
+  async function loadAccountData(showLoading = true) {
+    if (!token) return;
+    if (showLoading) setAccountLoading(true);
+    setAccountError('');
+    try {
+      const [orders, ledger] = await Promise.all([
+        api<PageResult<OrderView>>('/api/v1/orders?page=1&size=20', {}, token),
+        api<PageResult<PointsLedgerView>>('/api/v1/users/me/points-ledger?page=1&size=20', {}, token)
+      ]);
+      setAccountOrders(orders.items);
+      setAccountLedger(ledger.items);
+    } catch (error) {
+      setAccountError(errorMessage(error));
+    } finally {
+      if (showLoading) setAccountLoading(false);
+    }
   }
 
   async function submitAuth(event: FormEvent<HTMLFormElement>) {
@@ -792,6 +893,9 @@ export function App() {
             method: 'POST',
             body: JSON.stringify({ amountCents: option.amountCents })
           }, token);
+      if (!order.paymentNo) {
+        throw new Error('订单未生成支付号。');
+      }
       setPendingRechargePayment({
         orderNo: order.orderNo,
         paymentNo: order.paymentNo,
@@ -800,7 +904,7 @@ export function App() {
         optionTitle: option.title,
         successMessage: option.type === 'VIP' ? 'VIP 已开通。' : `已充值 ${option.points} 积分。`
       });
-      setRechargeMessage('订单已创建，请确认支付。');
+      setRechargeMessage('请完成支付。');
     } catch (error) {
       setRechargeMessage(errorMessage(error));
     } finally {
@@ -827,6 +931,25 @@ export function App() {
       setRechargeMessage(errorMessage(error));
     } finally {
       setRechargePaymentLoading(false);
+    }
+  }
+
+  async function payAccountOrder(order: OrderView) {
+    if (!token) {
+      openAuth('login');
+      return;
+    }
+    if (!order.paymentNo || accountPayingOrderNo) return;
+    setAccountPayingOrderNo(order.orderNo);
+    setAccountError('');
+    try {
+      await paymentGateway.confirmMockPayment(order.paymentNo, token);
+      await refreshProfile();
+      await loadAccountData(false);
+    } catch (error) {
+      setAccountError(errorMessage(error));
+    } finally {
+      setAccountPayingOrderNo('');
     }
   }
 
@@ -910,6 +1033,9 @@ export function App() {
           items: selectedCartItems.map((item) => ({ skuId: item.skuId, quantity: item.quantity }))
         })
       }, token);
+      if (!order.paymentNo) {
+        throw new Error('订单未生成支付号。');
+      }
       setPendingPayment({
         orderNo: order.orderNo,
         paymentNo: order.paymentNo,
@@ -1132,6 +1258,9 @@ export function App() {
                     <span>{profile.email}</span>
                     <small>{profile.points} 积分 · {isVip ? 'VIP 用户' : '普通用户'}</small>
                   </div>
+                  <button type="button" role="menuitem" className="dropdownAction" onClick={openAccountCenter}>
+                    <UserRound size={16} /> 个人中心
+                  </button>
                   <button type="button" role="menuitem" className="dropdownAction" onClick={openRecharge}>
                     <Coins size={16} /> 积分充值 / VIP
                   </button>
@@ -1222,6 +1351,20 @@ export function App() {
           onBack={() => navigate(`/works/${route.workId}`)}
           onOpenChapter={openChapter}
           onPurchaseChapter={purchaseChapter}
+        />
+      ) : route.kind === 'account' ? (
+        <AccountCenterPage
+          error={accountError}
+          isVip={isVip}
+          ledger={accountLedger}
+          loading={accountLoading}
+          orders={accountOrders}
+          payingOrderNo={accountPayingOrderNo}
+          profile={profile}
+          onBack={showList}
+          onLogin={() => openAuth('login')}
+          onPayOrder={payAccountOrder}
+          onRecharge={openRecharge}
         />
       ) : (
         <ProductDetailPage
@@ -1403,7 +1546,6 @@ function RechargeDialog({
           <X size={18} />
         </button>
         <header>
-          <p className="eyebrow">POINTS · VIP</p>
           <h2 id="recharge-title">充值中心</h2>
           {profile && <small>当前 {profile.points} 积分 · {profile.roles.includes('VIP') ? 'VIP 用户' : '普通用户'}</small>}
         </header>
@@ -1413,7 +1555,8 @@ function RechargeDialog({
             return (
               <button
                 className={`rechargeOption ${option.type === 'VIP' ? 'vip' : ''}`}
-                disabled={Boolean(pendingPayment) || (Boolean(loadingKey) && !loading)}
+                aria-label={`${option.title}，${option.caption}`}
+                disabled={Boolean(pendingPayment) || Boolean(loadingKey)}
                 key={option.id}
                 type="button"
                 onClick={() => onSelect(option)}
@@ -1421,7 +1564,7 @@ function RechargeDialog({
                 {option.type === 'VIP' ? <Crown size={20} /> : <Coins size={20} />}
                 <span>{option.title}</span>
                 <small>{option.caption}</small>
-                <b>{loading ? '生成订单中...' : pendingPayment ? '待支付中' : '生成支付订单'}</b>
+                {loading && <b>处理中...</b>}
               </button>
             );
           })}
@@ -1835,6 +1978,187 @@ function CartPanel({
   );
 }
 
+function AccountCenterPage({
+  error,
+  isVip,
+  ledger,
+  loading,
+  orders,
+  payingOrderNo,
+  profile,
+  onBack,
+  onLogin,
+  onPayOrder,
+  onRecharge
+}: {
+  error: string;
+  isVip: boolean;
+  ledger: PointsLedgerView[];
+  loading: boolean;
+  orders: OrderView[];
+  payingOrderNo: string;
+  profile: Profile | null;
+  onBack: () => void;
+  onLogin: () => void;
+  onPayOrder: (order: OrderView) => void;
+  onRecharge: () => void;
+}) {
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const paidOrders = orders.filter((order) => order.status === 'PAID').length;
+
+  return (
+    <section className="accountPage">
+      <button className="backButton" type="button" onClick={onBack}>返回首页</button>
+
+      <header className="accountHero">
+        <div>
+          <h1>个人中心</h1>
+        </div>
+        {profile ? (
+          <button type="button" onClick={onRecharge}>
+            <Coins size={16} /> 充值 / VIP
+          </button>
+        ) : (
+          <button type="button" onClick={onLogin}>
+            <LogIn size={16} /> 登录
+          </button>
+        )}
+      </header>
+
+      {error && <p className="accountNotice">{error}</p>}
+
+      {profile ? (
+        <>
+          <section className="accountStats">
+            <article className="accountStatCard">
+              <span>昵称</span>
+              <b>{profile.username}</b>
+              <small>{profile.email}</small>
+            </article>
+            <article className="accountStatCard accountPointsCard">
+              <span>积分余额</span>
+              <b>{profile.points}</b>
+              <small>可用于兑换付费章节</small>
+              <button type="button" className="accountTextButton" onClick={() => setLedgerOpen(true)}>详情</button>
+            </article>
+            <article className={`accountStatCard accountVipStat ${isVip ? '' : 'isInactive'}`}>
+              <span>会员状态</span>
+              {isVip ? (
+                <>
+                  <b>VIP</b>
+                  <small>{profile.vipUntil ? `有效期至 ${shortDateTime(profile.vipUntil)}` : 'VIP 已开通'}</small>
+                </>
+              ) : (
+                <button type="button" className="accountRechargeButton" onClick={onRecharge}>去充值</button>
+              )}
+            </article>
+            <article className="accountStatCard">
+              <span>订单</span>
+              <b>{orders.length}</b>
+              <small>{paidOrders} 个已完成</small>
+            </article>
+          </section>
+
+          <section className="accountGrid accountGridSingle">
+            <article className="accountPanel accountPanelWide">
+              <div className="accountPanelHead">
+                <div>
+                  <h2>我的订单</h2>
+                </div>
+                {loading && <span>加载中...</span>}
+              </div>
+              {orders.length ? (
+                <div className="accountOrderList">
+                  {orders.map((order) => {
+                    const itemSummary = order.items
+                      .map((item) => item.quantity > 1 ? `${item.title} x${item.quantity}` : item.title)
+                      .join('、') || order.orderNo;
+                    const orderTitle = order.items[0]?.title ?? order.orderNo;
+                    const showItemSummary = itemSummary !== orderTitle;
+                    const canPay = Boolean(order.paymentNo)
+                      && order.status !== 'PAID'
+                      && order.status !== 'CANCELLED'
+                      && order.paymentStatus !== 'CONFIRMED'
+                      && order.paymentStatus !== 'CANCELLED';
+                    const paying = payingOrderNo === order.orderNo;
+                    return (
+                      <div className="accountOrder" key={order.orderNo}>
+                        <div>
+                          <p className="eyebrow">{orderTypeLabel(order.orderType)}</p>
+                          <h3>{orderTitle}</h3>
+                          {showItemSummary && <small>{itemSummary}</small>}
+                          <div className="accountPaymentInline">
+                            {order.paymentNo ? (
+                              <>
+                                <span>支付号 {order.paymentNo}</span>
+                                <span>支付 · {paymentStatusLabel(order.paymentStatus)}</span>
+                                <span>{order.paidAt ? `确认 ${shortDateTime(order.paidAt)}` : '未确认支付'}</span>
+                              </>
+                            ) : (
+                              <span>无需在线支付</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="accountOrderMeta">
+                          <b>{order.totalCents > 0 ? money(order.totalCents) : order.totalPoints > 0 ? `${order.totalPoints} 积分` : '免费'}</b>
+                          <span className={`accountStatusPill status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
+                          <small>{shortDateTime(order.createdAt)}</small>
+                          {canPay && (
+                            <button
+                              type="button"
+                              className="accountPayButton"
+                              disabled={Boolean(payingOrderNo)}
+                              onClick={() => onPayOrder(order)}
+                            >
+                              {paying ? '支付中...' : '支付'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="accountEmpty">暂无订单。</div>
+              )}
+            </article>
+          </section>
+
+          {ledgerOpen && (
+            <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && setLedgerOpen(false)}>
+              <section className="pointsLedgerDialog" role="dialog" aria-modal="true" aria-labelledby="points-ledger-title">
+                <button className="modalClose" type="button" aria-label="关闭积分详情" onClick={() => setLedgerOpen(false)}>
+                  <X size={20} />
+                </button>
+                <h2 id="points-ledger-title">积分详情</h2>
+                {ledger.length ? (
+                  <div className="accountMiniList">
+                    {ledger.map((item) => (
+                      <div className="accountMiniItem" key={item.id}>
+                        <span>{ledgerReasonLabel(item.reason)}</span>
+                        <b className={item.amount >= 0 ? 'pointsPositive' : 'pointsNegative'}>{signedPoints(item.amount)}</b>
+                        <small>{shortDateTime(item.createdAt)}</small>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="accountEmpty">暂无积分明细。</div>
+                )}
+              </section>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="accountEmpty accountLoginPrompt">
+          <UserRound size={28} />
+          <h2>登录后查看个人中心</h2>
+          <button type="button" onClick={onLogin}>登录</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PaymentPrompt({
   loading,
   payment,
@@ -1847,7 +2171,6 @@ function PaymentPrompt({
   return (
     <section className="paymentPrompt" aria-label="订单支付确认">
       <div>
-        <p className="eyebrow">MOCK PAYMENT</p>
         <h3>订单待支付</h3>
       </div>
       <dl className="paymentMeta">
@@ -1865,7 +2188,7 @@ function PaymentPrompt({
         </div>
       </dl>
       <button type="button" disabled={loading} onClick={onConfirm}>
-        <Sparkles size={16} /> {loading ? '确认中...' : '模拟支付确认'}
+        <Sparkles size={16} /> {loading ? '确认中...' : '确认支付'}
       </button>
     </section>
   );

@@ -15,4 +15,7 @@ public interface InventoryClient {
 
     @PostMapping("/api/v1/internal/inventory/reservations/{reservationNo}/confirm")
     ApiResponse<ReservationView> confirm(@PathVariable("reservationNo") String reservationNo);
+
+    @PostMapping("/api/v1/internal/inventory/reservations/{reservationNo}/release")
+    ApiResponse<ReservationView> release(@PathVariable("reservationNo") String reservationNo);
 }

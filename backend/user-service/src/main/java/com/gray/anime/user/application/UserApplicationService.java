@@ -125,6 +125,24 @@ public class UserApplicationService {
         return new CheckinResponse(10, user.getPoints(), false);
     }
 
+    public PageResult<PointsLedgerView> pointsLedger(CurrentUser currentUser, long page, long size) {
+        AppUser user = requireUser(currentUser.id());
+        Page<PointsLedger> result = pointsLedgerMapper.selectPage(
+                Page.of(page, size),
+                new LambdaQueryWrapper<PointsLedger>()
+                        .eq(PointsLedger::getUserId, user.getId())
+                        .orderByDesc(PointsLedger::getId)
+        );
+        return new PageResult<>(
+                result.getRecords().stream()
+                        .map(ledger -> new PointsLedgerView(ledger.getId(), ledger.getAmount(), ledger.getReason(), ledger.getBizKey(), ledger.getCreatedAt()))
+                        .toList(),
+                page,
+                size,
+                result.getTotal()
+        );
+    }
+
     @Transactional
     public PasswordResetDevResponse requestPasswordReset(PasswordResetRequest request) {
         AppUser user = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, normalizeEmail(request.email())));

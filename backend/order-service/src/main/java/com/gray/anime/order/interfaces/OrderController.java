@@ -1,6 +1,7 @@
 package com.gray.anime.order.interfaces;
 
 import com.gray.anime.common.api.ApiResponse;
+import com.gray.anime.common.api.PageResult;
 import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.order.application.OrderApplicationService;
 import com.gray.anime.order.interfaces.dto.CreateOrderRequest;
@@ -22,6 +23,16 @@ public class OrderController {
     @PostMapping("/orders")
     ApiResponse<OrderView> createOrder(@Valid @RequestBody CreateOrderRequest request, HttpServletRequest httpRequest) {
         return ApiResponse.ok(service.createProductOrder(CurrentUser.from(httpRequest), request));
+    }
+
+    @GetMapping("/orders")
+    ApiResponse<PageResult<OrderView>> myOrders(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) String status,
+            HttpServletRequest request
+    ) {
+        return ApiResponse.ok(service.myOrders(CurrentUser.from(request), page, size, status));
     }
 
     @PostMapping("/vip/orders")

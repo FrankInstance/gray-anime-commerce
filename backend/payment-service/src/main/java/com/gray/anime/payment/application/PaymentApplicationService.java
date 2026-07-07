@@ -1,6 +1,7 @@
 package com.gray.anime.payment.application;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.gray.anime.common.exception.BizException;
 import com.gray.anime.payment.domain.*;
 import com.gray.anime.payment.infrastructure.client.InventoryClient;
@@ -18,15 +19,17 @@ public class PaymentApplicationService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper itemMapper;
     private final AppUserMapper userMapper;
+    private final PointsLedgerMapper pointsLedgerMapper;
     private final OutboxEventMapper outboxMapper;
     private final InventoryClient inventoryClient;
 
     public PaymentApplicationService(PaymentMapper paymentMapper, OrderMapper orderMapper, OrderItemMapper itemMapper,
-                                     AppUserMapper userMapper, OutboxEventMapper outboxMapper, InventoryClient inventoryClient) {
+                                     AppUserMapper userMapper, PointsLedgerMapper pointsLedgerMapper, OutboxEventMapper outboxMapper, InventoryClient inventoryClient) {
         this.paymentMapper = paymentMapper;
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.userMapper = userMapper;
+        this.pointsLedgerMapper = pointsLedgerMapper;
         this.outboxMapper = outboxMapper;
         this.inventoryClient = inventoryClient;
     }
@@ -40,15 +43,47 @@ public class PaymentApplicationService {
         if ("CONFIRMED".equals(payment.getStatus())) {
             return view(payment);
         }
+        if ("CANCELLED".equals(payment.getStatus())) {
+            throw new BizException("ORDER_CANCELLED", "Order has been cancelled");
+        }
+
+        OrderRecord order = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>().eq(OrderRecord::getOrderNo, payment.getOrderNo()));
+        if (order == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        if ("CANCELLED".equals(order.getStatus())) {
+            cancelPayment(payment);
+            throw new BizException("ORDER_CANCELLED", "Order has been cancelled");
+        }
+
+        boolean newlyPaid = false;
+        if ("PENDING_PAYMENT".equals(order.getStatus())) {
+            int updated = orderMapper.update(null, new LambdaUpdateWrapper<OrderRecord>()
+                    .eq(OrderRecord::getOrderNo, order.getOrderNo())
+                    .eq(OrderRecord::getStatus, "PENDING_PAYMENT")
+                    .set(OrderRecord::getStatus, "PAID")
+                    .set(OrderRecord::getUpdatedAt, LocalDateTime.now()));
+            if (updated == 0) {
+                OrderRecord latest = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>().eq(OrderRecord::getOrderNo, payment.getOrderNo()));
+                if (latest == null || "CANCELLED".equals(latest.getStatus())) {
+                    cancelPayment(payment);
+                    throw new BizException("ORDER_CANCELLED", "Order has been cancelled");
+                }
+                order = latest;
+            } else {
+                order.setStatus("PAID");
+                order.setUpdatedAt(LocalDateTime.now());
+                newlyPaid = true;
+            }
+        } else if (!"PAID".equals(order.getStatus())) {
+            throw new BizException("ORDER_STATUS_INVALID", "Order cannot be paid");
+        }
+
         payment.setStatus("CONFIRMED");
         payment.setConfirmedAt(LocalDateTime.now());
         paymentMapper.updateById(payment);
 
-        OrderRecord order = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>().eq(OrderRecord::getOrderNo, payment.getOrderNo()));
-        if (order != null && !"PAID".equals(order.getStatus())) {
-            order.setStatus("PAID");
-            order.setUpdatedAt(LocalDateTime.now());
-            orderMapper.updateById(order);
+        if (newlyPaid) {
             if ("PRODUCT".equals(order.getOrderType())) {
                 confirmReservations(order.getId());
             }
@@ -56,11 +91,18 @@ public class PaymentApplicationService {
                 activateVip(order.getUserId());
             }
             if ("POINTS".equals(order.getOrderType())) {
-                rechargePoints(order.getUserId(), order.getTotalPoints());
+                rechargePoints(order.getUserId(), order.getTotalPoints(), order.getOrderNo());
             }
         }
         outbox("Payment", paymentNo, "PaymentConfirmed", "{\"paymentNo\":\"" + paymentNo + "\",\"orderNo\":\"" + payment.getOrderNo() + "\"}");
         return view(payment);
+    }
+
+    private void cancelPayment(PaymentRecord payment) {
+        if (!"CANCELLED".equals(payment.getStatus())) {
+            payment.setStatus("CANCELLED");
+            paymentMapper.updateById(payment);
+        }
     }
 
     private void confirmReservations(Long orderId) {
@@ -85,7 +127,7 @@ public class PaymentApplicationService {
         userMapper.updateById(user);
     }
 
-    private void rechargePoints(Long userId, Integer points) {
+    private void rechargePoints(Long userId, Integer points, String orderNo) {
         if (points == null || points <= 0) {
             return;
         }
@@ -96,6 +138,14 @@ public class PaymentApplicationService {
         user.setPoints((user.getPoints() == null ? 0 : user.getPoints()) + points);
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
+
+        PointsLedgerRecord ledger = new PointsLedgerRecord();
+        ledger.setUserId(userId);
+        ledger.setAmount(points);
+        ledger.setReason("POINTS_RECHARGE");
+        ledger.setBizKey("POINTS_ORDER:" + orderNo);
+        ledger.setCreatedAt(LocalDateTime.now());
+        pointsLedgerMapper.insert(ledger);
     }
 
     private void outbox(String aggregateType, String aggregateId, String eventType, String payload) {
