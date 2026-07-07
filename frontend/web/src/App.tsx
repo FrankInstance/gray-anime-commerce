@@ -238,6 +238,56 @@ function paymentStatusLabel(status: string | null | undefined) {
   } as Record<string, string>)[status] ?? status;
 }
 
+function canPayOrder(order: Pick<OrderView, 'paymentNo' | 'status' | 'paymentStatus'>) {
+  return Boolean(order.paymentNo)
+    && order.status !== 'PAID'
+    && order.status !== 'CANCELLED'
+    && order.paymentStatus !== 'CONFIRMED'
+    && order.paymentStatus !== 'CANCELLED';
+}
+
+function orderAmountText(order: Pick<OrderView, 'totalCents' | 'totalPoints'>) {
+  if (order.totalCents > 0) return money(order.totalCents);
+  if (order.totalPoints > 0) return `${order.totalPoints} 积分`;
+  return '免费';
+}
+
+function orderItemTypeLabel(type: string) {
+  return ({
+    SKU: '商品',
+    PRODUCT: '商品',
+    VIP: '会员',
+    POINTS: '积分',
+    CHAPTER: '章节'
+  } as Record<string, string>)[type] ?? type;
+}
+
+function orderItemUnitText(item: Pick<OrderItemView, 'unitPriceCents' | 'unitPoints'>) {
+  if (item.unitPriceCents > 0) return money(item.unitPriceCents);
+  if (item.unitPoints > 0) return `${item.unitPoints} 积分`;
+  return '免费';
+}
+
+function orderItemSubtotalText(item: Pick<OrderItemView, 'unitPriceCents' | 'unitPoints' | 'quantity'>) {
+  if (item.unitPriceCents > 0) return money(item.unitPriceCents * item.quantity);
+  if (item.unitPoints > 0) return `${item.unitPoints * item.quantity} 积分`;
+  return '免费';
+}
+
+function orderDisplayItems(order: OrderView) {
+  if (order.items.length) return order.items;
+  return [{
+    itemType: order.orderType,
+    refId: null,
+    skuId: null,
+    title: order.orderType === 'VIP' ? 'VIP 月卡' : orderTypeLabel(order.orderType),
+    quantity: 1,
+    unitPriceCents: order.totalCents,
+    unitPoints: order.totalPoints,
+    reservationNo: null
+  }];
+}
+
 function ledgerReasonLabel(reason: string) {
   return ({
     SIGN_IN: '每日签到',
@@ -2023,7 +2073,18 @@ function AccountCenterPage({
   onRecharge: () => void;
 }) {
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [selectedOrderNo, setSelectedOrderNo] = useState('');
+  const selectedOrder = useMemo(
+    () => orders.find((order) => order.orderNo === selectedOrderNo) ?? null,
+    [orders, selectedOrderNo]
+  );
   const paidOrders = orders.filter((order) => order.status === 'PAID').length;
+
+  useEffect(() => {
+    if (selectedOrderNo && !selectedOrder) {
+      setSelectedOrderNo('');
+    }
+  }, [selectedOrderNo, selectedOrder]);
 
   return (
     <section className="accountPage">
@@ -2109,11 +2170,7 @@ function AccountCenterPage({
                       .join('、') || order.orderNo;
                     const orderTitle = order.items[0]?.title ?? order.orderNo;
                     const showItemSummary = itemSummary !== orderTitle;
-                    const canPay = Boolean(order.paymentNo)
-                      && order.status !== 'PAID'
-                      && order.status !== 'CANCELLED'
-                      && order.paymentStatus !== 'CONFIRMED'
-                      && order.paymentStatus !== 'CANCELLED';
+                    const canPay = canPayOrder(order);
                     const paying = payingOrderNo === order.orderNo;
                     return (
                       <div className="accountOrder" key={order.orderNo}>
@@ -2134,19 +2191,28 @@ function AccountCenterPage({
                           </div>
                         </div>
                         <div className="accountOrderMeta">
-                          <b>{order.totalCents > 0 ? money(order.totalCents) : order.totalPoints > 0 ? `${order.totalPoints} 积分` : '免费'}</b>
+                          <b>{orderAmountText(order)}</b>
                           <span className={`accountStatusPill status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
                           <small>{shortDateTime(order.createdAt)}</small>
-                          {canPay && (
+                          <div className="accountOrderActions">
                             <button
                               type="button"
-                              className="accountPayButton"
-                              disabled={Boolean(payingOrderNo)}
-                              onClick={() => onPayOrder(order)}
+                              className="accountDetailButton"
+                              onClick={() => setSelectedOrderNo(order.orderNo)}
                             >
-                              {paying ? '支付中...' : '支付'}
+                              <Ticket size={14} /> 详情
                             </button>
-                          )}
+                            {canPay && (
+                              <button
+                                type="button"
+                                className="accountPayButton"
+                                disabled={Boolean(payingOrderNo)}
+                                onClick={() => onPayOrder(order)}
+                              >
+                                {paying ? '支付中...' : '支付'}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -2157,6 +2223,16 @@ function AccountCenterPage({
               )}
             </article>
           </section>
+
+          {selectedOrder && (
+            <OrderDetailDialog
+              disabled={Boolean(payingOrderNo)}
+              order={selectedOrder}
+              paying={payingOrderNo === selectedOrder.orderNo}
+              onClose={() => setSelectedOrderNo('')}
+              onPay={() => onPayOrder(selectedOrder)}
+            />
+          )}
 
           {ledgerOpen && (
             <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && setLedgerOpen(false)}>
@@ -2190,6 +2266,93 @@ function AccountCenterPage({
         </div>
       )}
     </section>
+  );
+}
+
+function OrderDetailDialog({
+  disabled,
+  order,
+  paying,
+  onClose,
+  onPay
+}: {
+  disabled: boolean;
+  order: OrderView;
+  paying: boolean;
+  onClose: () => void;
+  onPay: () => void;
+}) {
+  const canPay = canPayOrder(order);
+  const items = orderDisplayItems(order);
+
+  return (
+    <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && onClose()}>
+      <section className="orderDetailDialog" role="dialog" aria-modal="true" aria-labelledby="order-detail-title">
+        <button className="modalClose" type="button" aria-label="关闭订单详情" onClick={onClose}>
+          <X size={20} />
+        </button>
+        <header className="orderDetailHead">
+          <div>
+            <p className="eyebrow">{orderTypeLabel(order.orderType)}</p>
+            <h2 id="order-detail-title">订单详情</h2>
+          </div>
+          <span className={`accountStatusPill status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
+        </header>
+
+        <dl className="orderDetailMeta">
+          <div>
+            <dt>订单号</dt>
+            <dd>{order.orderNo}</dd>
+          </div>
+          <div>
+            <dt>创建时间</dt>
+            <dd>{shortDateTime(order.createdAt)}</dd>
+          </div>
+          <div>
+            <dt>支付状态</dt>
+            <dd>{paymentStatusLabel(order.paymentStatus)}</dd>
+          </div>
+          {order.paymentNo && (
+            <div>
+              <dt>支付号</dt>
+              <dd>{order.paymentNo}</dd>
+            </div>
+          )}
+          {order.paidAt && (
+            <div>
+              <dt>支付时间</dt>
+              <dd>{shortDateTime(order.paidAt)}</dd>
+            </div>
+          )}
+        </dl>
+
+        <div className="orderDetailItems">
+          <h3>明细</h3>
+          {items.map((item, index) => (
+            <div className="orderDetailItem" key={`${item.itemType}-${item.refId ?? item.skuId ?? index}`}>
+              <div>
+                <span>{orderItemTypeLabel(item.itemType)}</span>
+                <b>{item.title}</b>
+                <small>{orderItemUnitText(item)} · x{item.quantity}</small>
+              </div>
+              <strong>{orderItemSubtotalText(item)}</strong>
+            </div>
+          ))}
+        </div>
+
+        <footer className="orderDetailFooter">
+          <div>
+            <span>合计</span>
+            <b>{orderAmountText(order)}</b>
+          </div>
+          {canPay && (
+            <button type="button" disabled={disabled} onClick={onPay}>
+              <Sparkles size={16} /> {paying ? '支付中...' : '支付'}
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
   );
 }
 
