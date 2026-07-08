@@ -32,10 +32,12 @@ public class OrderApplicationService {
     private final ChapterEntitlementRecordMapper entitlementMapper;
     private final PointsLedgerMapper pointsLedgerMapper;
     private final InventoryClient inventoryClient;
+    private final OrderLifecycleService lifecycleService;
 
     public OrderApplicationService(OrderMapper orderMapper, OrderItemMapper itemMapper, PaymentMapper paymentMapper, OutboxEventMapper outboxMapper,
                                    SkuSnapshotMapper skuMapper, ProductSnapshotMapper productMapper, ChapterSnapshotMapper chapterMapper, AppUserSnapshotMapper userMapper,
-                                   ChapterEntitlementRecordMapper entitlementMapper, PointsLedgerMapper pointsLedgerMapper, InventoryClient inventoryClient) {
+                                   ChapterEntitlementRecordMapper entitlementMapper, PointsLedgerMapper pointsLedgerMapper, InventoryClient inventoryClient,
+                                   OrderLifecycleService lifecycleService) {
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.paymentMapper = paymentMapper;
@@ -47,6 +49,7 @@ public class OrderApplicationService {
         this.entitlementMapper = entitlementMapper;
         this.pointsLedgerMapper = pointsLedgerMapper;
         this.inventoryClient = inventoryClient;
+        this.lifecycleService = lifecycleService;
     }
 
     @Transactional
@@ -192,6 +195,25 @@ public class OrderApplicationService {
         }
         Page<OrderRecord> result = orderMapper.selectPage(Page.of(page, size), wrapper);
         return new PageResult<>(result.getRecords().stream().map(this::orderView).toList(), page, size, result.getTotal());
+    }
+
+    @Transactional
+    public OrderView cancelOrder(CurrentUser user, String orderNo) {
+        requireLogin(user);
+        OrderRecord order = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>()
+                .eq(OrderRecord::getOrderNo, orderNo)
+                .eq(OrderRecord::getUserId, user.id())
+                .last("limit 1"));
+        if (order == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        if (!OrderStatus.PENDING_PAYMENT.name().equals(order.getStatus())) {
+            throw new BizException("ORDER_CANNOT_CANCEL", "订单无法取消");
+        }
+        if (!lifecycleService.cancelPendingOrder(order, "USER_CANCELLED")) {
+            throw new BizException("ORDER_CANNOT_CANCEL", "订单无法取消");
+        }
+        return orderView(order);
     }
 
     public PageResult<OrderView> adminOrders(long page, long size, String status) {

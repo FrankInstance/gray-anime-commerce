@@ -246,6 +246,10 @@ function canPayOrder(order: Pick<OrderView, 'paymentNo' | 'status' | 'paymentSta
     && order.paymentStatus !== 'CANCELLED';
 }
 
+function canCancelOrder(order: Pick<OrderView, 'status'>) {
+  return order.status === 'PENDING_PAYMENT';
+}
+
 function orderAmountText(order: Pick<OrderView, 'totalCents' | 'totalPoints'>) {
   if (order.totalCents > 0) return money(order.totalCents);
   if (order.totalPoints > 0) return `${order.totalPoints} 积分`;
@@ -552,6 +556,7 @@ export function App() {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [accountPayingOrderNo, setAccountPayingOrderNo] = useState('');
+  const [accountCancellingOrderNo, setAccountCancellingOrderNo] = useState('');
   const [accountOrderFilter, setAccountOrderFilter] = useState<AccountOrderFilter>('ALL');
   const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
   const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
@@ -1016,6 +1021,24 @@ export function App() {
     }
   }
 
+  async function cancelAccountOrder(order: OrderView) {
+    if (!token) {
+      openAuth('login');
+      return;
+    }
+    if (!canCancelOrder(order) || accountCancellingOrderNo) return;
+    setAccountCancellingOrderNo(order.orderNo);
+    setAccountError('');
+    try {
+      await api<OrderView>(`/api/v1/orders/${order.orderNo}/cancel`, { method: 'POST' }, token);
+      await loadAccountData(false);
+    } catch (error) {
+      setAccountError(errorMessage(error));
+    } finally {
+      setAccountCancellingOrderNo('');
+    }
+  }
+
   async function addProductToCart(product: Product, sku: ProductSku | undefined = product.skus[0]) {
     if (!sku) {
       setCartMessage('该商品暂无可购买规格。');
@@ -1417,6 +1440,7 @@ export function App() {
         />
       ) : route.kind === 'account' ? (
         <AccountCenterPage
+          cancellingOrderNo={accountCancellingOrderNo}
           error={accountError}
           isVip={isVip}
           ledger={accountLedger}
@@ -1426,6 +1450,7 @@ export function App() {
           payingOrderNo={accountPayingOrderNo}
           profile={profile}
           onBack={showList}
+          onCancelOrder={cancelAccountOrder}
           onFilterChange={setAccountOrderFilter}
           onLogin={() => openAuth('login')}
           onPayOrder={payAccountOrder}
@@ -2044,6 +2069,7 @@ function CartPanel({
 }
 
 function AccountCenterPage({
+  cancellingOrderNo,
   error,
   isVip,
   ledger,
@@ -2053,11 +2079,13 @@ function AccountCenterPage({
   payingOrderNo,
   profile,
   onBack,
+  onCancelOrder,
   onFilterChange,
   onLogin,
   onPayOrder,
   onRecharge
 }: {
+  cancellingOrderNo: string;
   error: string;
   isVip: boolean;
   ledger: PointsLedgerView[];
@@ -2067,6 +2095,7 @@ function AccountCenterPage({
   payingOrderNo: string;
   profile: Profile | null;
   onBack: () => void;
+  onCancelOrder: (order: OrderView) => void;
   onFilterChange: (filter: AccountOrderFilter) => void;
   onLogin: () => void;
   onPayOrder: (order: OrderView) => void;
@@ -2171,7 +2200,9 @@ function AccountCenterPage({
                     const orderTitle = order.items[0]?.title ?? order.orderNo;
                     const showItemSummary = itemSummary !== orderTitle;
                     const canPay = canPayOrder(order);
+                    const canCancel = canCancelOrder(order);
                     const paying = payingOrderNo === order.orderNo;
+                    const cancelling = cancellingOrderNo === order.orderNo;
                     return (
                       <div className="accountOrder" key={order.orderNo}>
                         <div>
@@ -2206,10 +2237,20 @@ function AccountCenterPage({
                               <button
                                 type="button"
                                 className="accountPayButton"
-                                disabled={Boolean(payingOrderNo)}
+                                disabled={Boolean(payingOrderNo || cancellingOrderNo)}
                                 onClick={() => onPayOrder(order)}
                               >
                                 {paying ? '支付中...' : '支付'}
+                              </button>
+                            )}
+                            {canCancel && (
+                              <button
+                                type="button"
+                                className="accountCancelButton"
+                                disabled={Boolean(payingOrderNo || cancellingOrderNo)}
+                                onClick={() => onCancelOrder(order)}
+                              >
+                                <X size={14} /> {cancelling ? '取消中...' : '取消'}
                               </button>
                             )}
                           </div>
@@ -2226,9 +2267,12 @@ function AccountCenterPage({
 
           {selectedOrder && (
             <OrderDetailDialog
+              cancelling={cancellingOrderNo === selectedOrder.orderNo}
               disabled={Boolean(payingOrderNo)}
+              hasBusyOrder={Boolean(payingOrderNo || cancellingOrderNo)}
               order={selectedOrder}
               paying={payingOrderNo === selectedOrder.orderNo}
+              onCancel={() => onCancelOrder(selectedOrder)}
               onClose={() => setSelectedOrderNo('')}
               onPay={() => onPayOrder(selectedOrder)}
             />
@@ -2270,19 +2314,26 @@ function AccountCenterPage({
 }
 
 function OrderDetailDialog({
+  cancelling,
   disabled,
+  hasBusyOrder,
   order,
   paying,
+  onCancel,
   onClose,
   onPay
 }: {
+  cancelling: boolean;
   disabled: boolean;
+  hasBusyOrder: boolean;
   order: OrderView;
   paying: boolean;
+  onCancel: () => void;
   onClose: () => void;
   onPay: () => void;
 }) {
   const canPay = canPayOrder(order);
+  const canCancel = canCancelOrder(order);
   const items = orderDisplayItems(order);
 
   return (
@@ -2345,10 +2396,19 @@ function OrderDetailDialog({
             <span>合计</span>
             <b>{orderAmountText(order)}</b>
           </div>
-          {canPay && (
-            <button type="button" disabled={disabled} onClick={onPay}>
-              <Sparkles size={16} /> {paying ? '支付中...' : '支付'}
-            </button>
+          {(canPay || canCancel) && (
+            <div className="orderDetailActions">
+              {canPay && (
+                <button type="button" disabled={hasBusyOrder || disabled} onClick={onPay}>
+                  <Sparkles size={16} /> {paying ? '支付中...' : '支付'}
+                </button>
+              )}
+              {canCancel && (
+                <button type="button" className="accountCancelButton" disabled={hasBusyOrder} onClick={onCancel}>
+                  <X size={15} /> {cancelling ? '取消中...' : '取消订单'}
+                </button>
+              )}
+            </div>
           )}
         </footer>
       </section>
