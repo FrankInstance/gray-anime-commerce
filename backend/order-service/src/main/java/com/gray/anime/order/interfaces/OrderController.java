@@ -35,6 +35,11 @@ public class OrderController {
         return ApiResponse.ok(service.myOrders(CurrentUser.from(request), page, size, status));
     }
 
+    @PostMapping("/orders/{orderNo}/cancel")
+    ApiResponse<OrderView> cancelOrder(@PathVariable String orderNo, HttpServletRequest request) {
+        return ApiResponse.ok(service.cancelOrder(CurrentUser.from(request), orderNo));
+    }
+
     @PostMapping("/vip/orders")
     ApiResponse<OrderView> createVipOrder(HttpServletRequest request) {
         return ApiResponse.ok(service.createVipOrder(CurrentUser.from(request)));

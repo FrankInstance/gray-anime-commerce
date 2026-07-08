@@ -1532,6 +1532,10 @@ button.secondary,
   .orderDetailItem strong {
     white-space: normal;
   }
+
+  .orderDetailActions {
+    justify-content: flex-start;
+  }
 }
 
 /* Neon night theme */
@@ -2443,6 +2447,20 @@ button.secondary,
   background: rgba(101, 245, 255, 0.12);
 }
 
+.accountCancelButton {
+  min-height: 34px;
+  padding: 0 13px;
+  border-color: rgba(255, 71, 212, 0.34);
+  background: rgba(255, 71, 212, 0.08);
+  color: #ffd7f5;
+  box-shadow: none;
+}
+
+.accountCancelButton:hover:not(:disabled) {
+  border-color: rgba(255, 71, 212, 0.58);
+  background: rgba(255, 71, 212, 0.16);
+}
+
 .accountMiniItem {
   padding: 11px;
 }
@@ -2630,6 +2648,13 @@ button.secondary,
 .orderDetailFooter div {
   display: grid;
   gap: 4px;
+}
+
+.orderDetailActions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px !important;
 }
 
 .orderDetailFooter b {
