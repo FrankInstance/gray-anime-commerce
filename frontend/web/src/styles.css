@@ -41,12 +41,16 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .sectionSearch button,
 .resultCopy,
 .authForm button,
+.bookshelfButton,
 .chapterRow button,
 .productDetail button,
 .readerNav button,
 .tocItem,
 .readerLocked button,
-.readerFooter button {
+.readerFooter button,
+.accountEntryCard,
+.accountContinueCard,
+.accountBookshelfItem {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -792,7 +796,9 @@ button.secondary,
   .detailBoard,
   .productDetail,
   .readerTop,
-  .readerLayout {
+  .readerLayout,
+  .accountLibraryGrid,
+  .accountEntryGrid {
     grid-template-columns: 1fr;
   }
 
@@ -2093,6 +2099,28 @@ button.secondary,
   color: var(--ink);
 }
 
+.detailActions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  min-width: max-content;
+}
+
+.bookshelfButton {
+  min-height: 40px;
+  padding: 0 15px;
+  border-color: rgba(101, 245, 255, 0.34);
+  background: rgba(101, 245, 255, 0.08);
+  color: var(--ink);
+  box-shadow: 0 0 18px rgba(101, 245, 255, 0.12);
+}
+
+.bookshelfButton.isActive {
+  border-color: rgba(215, 255, 74, 0.48);
+  background: rgba(215, 255, 74, 0.1);
+  color: var(--acid);
+}
+
 .detailBoard,
 .productDetail {
   grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
@@ -2253,6 +2281,81 @@ button.secondary,
   grid-template-columns: 1fr;
 }
 
+.accountLibraryGrid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.accountEntryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.accountEntryCard {
+  width: 100%;
+  min-height: 96px;
+  justify-content: space-between;
+  padding: 16px;
+  border-color: rgba(101, 245, 255, 0.22);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.09), rgba(255, 71, 212, 0.06)),
+    rgba(5, 7, 20, 0.58);
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+}
+
+.accountEntryCard:hover {
+  border-color: rgba(101, 245, 255, 0.5);
+  background:
+    linear-gradient(135deg, rgba(101, 245, 255, 0.15), rgba(255, 71, 212, 0.1)),
+    rgba(5, 7, 20, 0.72);
+  transform: none;
+}
+
+.accountEntryCard > svg:first-child {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 10px rgba(101, 245, 255, 0.35));
+}
+
+.accountEntryCard span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  flex: 1;
+}
+
+.accountEntryCard b {
+  color: #fff;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.accountEntryCard small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.accountMode-home .accountBookshelfPanel,
+.accountMode-home .accountGridSingle,
+.accountMode-bookshelf .accountContinuePanel,
+.accountMode-bookshelf .accountGridSingle,
+.accountMode-orders .accountEntryGrid,
+.accountMode-orders .accountLibraryGrid {
+  display: none;
+}
+
+.accountMode-bookshelf .accountLibraryGrid {
+  grid-template-columns: 1fr;
+}
+
 .accountPanel {
   display: grid;
   gap: 12px;
@@ -2317,16 +2420,110 @@ button.secondary,
 }
 
 .accountOrderList,
-.accountMiniList {
+.accountMiniList,
+.accountBookshelfList {
   display: grid;
   gap: 10px;
 }
 
 .accountOrder,
-.accountMiniItem {
+.accountMiniItem,
+.accountContinueCard,
+.accountBookshelfItem {
   border: 1px solid rgba(101, 245, 255, 0.16);
   border-radius: 8px;
   background: rgba(5, 7, 20, 0.54);
+}
+
+.accountContinueCard,
+.accountBookshelfItem {
+  width: 100%;
+  min-width: 0;
+  border-color: rgba(101, 245, 255, 0.18);
+  color: var(--ink);
+  box-shadow: none;
+  text-align: left;
+}
+
+.accountContinueCard {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+
+.accountBookshelfItem {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  padding: 8px;
+}
+
+.accountContinueCard:hover,
+.accountBookshelfItem:hover {
+  border-color: rgba(101, 245, 255, 0.46);
+  background: rgba(101, 245, 255, 0.08);
+  transform: none;
+}
+
+.accountContinueCard img,
+.accountBookshelfItem img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: rgba(101, 245, 255, 0.08);
+}
+
+.accountBookshelfItem img {
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+}
+
+.accountContinueCard span,
+.accountBookshelfItem span {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.accountContinueCard span {
+  align-content: center;
+  padding: 12px;
+}
+
+.accountBookshelfItem span {
+  padding: 0 2px 0 8px;
+}
+
+.accountContinueCard small,
+.accountBookshelfItem small {
+  color: var(--acid);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.accountContinueCard b,
+.accountBookshelfItem b {
+  color: #fff;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.accountContinueCard em,
+.accountBookshelfItem em {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.accountContinueCard strong {
+  width: fit-content;
+  margin-top: 2px;
+  color: var(--cyan);
+  font-size: 13px;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.38);
 }
 
 .accountOrder {
@@ -2690,6 +2887,14 @@ button.secondary,
 .skuRow span,
 .tocItem b {
   color: var(--ink);
+}
+
+.chapterAccess {
+  min-width: max-content;
+}
+
+.chapterAccess.isReadable {
+  color: var(--cyan);
 }
 
 .readerPage {
@@ -3059,7 +3264,8 @@ button.secondary,
   .detailBoard,
   .productDetail,
   .readerTop,
-  .readerLayout {
+  .readerLayout,
+  .accountLibraryGrid {
     grid-template-columns: 1fr;
   }
 

@@ -1,4 +1,5 @@
 import {
+  Bookmark,
   BookOpen,
   ChevronDown,
   ChevronLeft,
@@ -26,8 +27,23 @@ type ApiResponse<T> = { code: string; message: string; data: T; traceId: string 
 type PageResult<T> = { items: T[]; page: number; size: number; total: number };
 type Work = { id: number; title: string; workType: string; author: string; category: string; description: string; coverUrl: string; popularity: number };
 type WorkDetail = { work: Work; chapters: Chapter[] };
-type Chapter = { id: number; chapterNo: number; title: string; free: boolean; pricePoints: number };
+type Chapter = { id: number; chapterNo: number; title: string; free: boolean; pricePoints: number; unlocked?: boolean; accessLabel?: string };
 type ReaderResponse = { chapterId: number; title: string; unlocked: boolean; text: string; images: string[] };
+type BookshelfItem = Work & {
+  workId: number;
+  lastChapterId: number | null;
+  lastChapterNo: number | null;
+  lastChapterTitle: string | null;
+  addedAt: string;
+  updatedAt: string;
+};
+type ReadingProgress = Work & {
+  workId: number;
+  chapterId: number;
+  chapterNo: number;
+  chapterTitle: string;
+  updatedAt: string;
+};
 type Product = {
   id: number;
   title: string;
@@ -80,6 +96,8 @@ type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
 type AppRoute =
   | { kind: 'list' }
   | { kind: 'account' }
+  | { kind: 'accountBookshelf' }
+  | { kind: 'accountOrders' }
   | { kind: 'work'; id: number }
   | { kind: 'reader'; workId: number; chapterId: number }
   | { kind: 'product'; id: number };
@@ -248,6 +266,14 @@ function canPayOrder(order: Pick<OrderView, 'paymentNo' | 'status' | 'paymentSta
 
 function canCancelOrder(order: Pick<OrderView, 'status'>) {
   return order.status === 'PENDING_PAYMENT';
+}
+
+function chapterAccessLabel(chapter: Chapter) {
+  return chapter.accessLabel || (chapter.free ? '免费' : `${chapter.pricePoints}积分`);
+}
+
+function chapterIsReadable(chapter: Chapter) {
+  return chapter.unlocked ?? chapter.free;
 }
 
 function orderAmountText(order: Pick<OrderView, 'totalCents' | 'totalPoints'>) {
@@ -504,6 +530,8 @@ function updateStoredProfile(profile: Profile) {
 }
 
 function parseRoute(path = window.location.pathname): AppRoute {
+  if (path === '/account/bookshelf') return { kind: 'accountBookshelf' };
+  if (path === '/account/orders') return { kind: 'accountOrders' };
   if (path === '/account') return { kind: 'account' };
   const readerMatch = path.match(/^\/works\/(\d+)\/chapters\/(\d+)\/read$/);
   if (readerMatch) return { kind: 'reader', workId: Number(readerMatch[1]), chapterId: Number(readerMatch[2]) };
@@ -553,10 +581,13 @@ export function App() {
   const [readerError, setReaderError] = useState('');
   const [accountOrders, setAccountOrders] = useState<OrderView[]>([]);
   const [accountLedger, setAccountLedger] = useState<PointsLedgerView[]>([]);
+  const [accountBookshelf, setAccountBookshelf] = useState<BookshelfItem[]>([]);
+  const [accountReadingProgress, setAccountReadingProgress] = useState<ReadingProgress[]>([]);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [accountPayingOrderNo, setAccountPayingOrderNo] = useState('');
   const [accountCancellingOrderNo, setAccountCancellingOrderNo] = useState('');
+  const [bookshelfLoadingWorkId, setBookshelfLoadingWorkId] = useState<number | null>(null);
   const [accountOrderFilter, setAccountOrderFilter] = useState<AccountOrderFilter>('ALL');
   const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
   const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
@@ -602,6 +633,7 @@ export function App() {
   const selectedCartOriginalTotalCents = selectedCartItems.reduce((total, item) => total + item.originalPriceCents * item.quantity, 0);
   const selectedCartTotalCents = selectedCartItems.reduce((total, item) => total + cartUnitPriceCents(item, isVip) * item.quantity, 0);
   const selectedCartDiscountCents = Math.max(0, selectedCartOriginalTotalCents - selectedCartTotalCents);
+  const bookshelfWorkIds = useMemo(() => new Set(accountBookshelf.map((item) => item.workId)), [accountBookshelf]);
 
   useEffect(() => {
     const onPopState = () => setRoute(parseRoute());
@@ -633,6 +665,34 @@ export function App() {
         clearStoredAuth();
         setToken('');
         setProfile(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setAccountBookshelf([]);
+      setAccountReadingProgress([]);
+      return;
+    }
+    let active = true;
+
+    Promise.all([
+      api<PageResult<BookshelfItem>>('/api/v1/reading/bookshelf?page=1&size=50', {}, token),
+      api<PageResult<ReadingProgress>>('/api/v1/reading/progress?page=1&size=20', {}, token)
+    ])
+      .then(([bookshelf, progress]) => {
+        if (!active) return;
+        setAccountBookshelf(bookshelf.items);
+        setAccountReadingProgress(progress.items);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAccountBookshelf([]);
+        setAccountReadingProgress([]);
       });
 
     return () => {
@@ -684,7 +744,7 @@ export function App() {
     if (route.kind === 'work' || route.kind === 'reader') {
       const workId = route.kind === 'work' ? route.id : route.workId;
       setDetailProduct(null);
-      api<WorkDetail>(`/api/v1/works/${workId}`)
+      api<WorkDetail>(`/api/v1/works/${workId}`, {}, token)
         .then((data) => {
           setDetailWork(data.work);
           setChapters(data.chapters);
@@ -736,7 +796,8 @@ export function App() {
   }, [route, token]);
 
   useEffect(() => {
-    if (route.kind !== 'account') return;
+    const isAccountRoute = route.kind === 'account' || route.kind === 'accountBookshelf' || route.kind === 'accountOrders';
+    if (!isAccountRoute) return;
     setDetailWork(null);
     setDetailProduct(null);
     setReaderData(null);
@@ -744,6 +805,8 @@ export function App() {
     if (!token) {
       setAccountOrders([]);
       setAccountLedger([]);
+      setAccountBookshelf([]);
+      setAccountReadingProgress([]);
       setAccountError('请先登录后查看个人中心。');
       return;
     }
@@ -862,12 +925,16 @@ export function App() {
       orderParams.set('status', filter);
     }
     try {
-      const [orders, ledger] = await Promise.all([
+      const [orders, ledger, bookshelf, progress] = await Promise.all([
         api<PageResult<OrderView>>(`/api/v1/orders?${orderParams.toString()}`, {}, token),
-        api<PageResult<PointsLedgerView>>('/api/v1/users/me/points-ledger?page=1&size=20', {}, token)
+        api<PageResult<PointsLedgerView>>('/api/v1/users/me/points-ledger?page=1&size=20', {}, token),
+        api<PageResult<BookshelfItem>>('/api/v1/reading/bookshelf?page=1&size=50', {}, token),
+        api<PageResult<ReadingProgress>>('/api/v1/reading/progress?page=1&size=20', {}, token)
       ]);
       setAccountOrders(orders.items);
       setAccountLedger(ledger.items);
+      setAccountBookshelf(bookshelf.items);
+      setAccountReadingProgress(progress.items);
     } catch (error) {
       setAccountError(errorMessage(error));
     } finally {
@@ -934,6 +1001,9 @@ export function App() {
     }
     try {
       await api(`/api/v1/chapters/${chapter.id}/purchase`, { method: 'POST' }, token);
+      setChapters((items) => items.map((item) => (
+        item.id === chapter.id ? { ...item, unlocked: true, accessLabel: '已解锁' } : item
+      )));
       setNotice(`兑换成功，消耗 ${chapter.pricePoints} 积分；该章节已永久解锁。`);
       openChapter(chapter);
     } catch (error) {
@@ -1036,6 +1106,29 @@ export function App() {
       setAccountError(errorMessage(error));
     } finally {
       setAccountCancellingOrderNo('');
+    }
+  }
+
+  async function toggleBookshelf(work: Work) {
+    if (!token) {
+      openAuth('login');
+      return;
+    }
+    if (bookshelfLoadingWorkId) return;
+    const inBookshelf = bookshelfWorkIds.has(work.id);
+    setBookshelfLoadingWorkId(work.id);
+    try {
+      if (inBookshelf) {
+        await api(`/api/v1/works/${work.id}/bookshelf`, { method: 'DELETE' }, token);
+        setAccountBookshelf((items) => items.filter((item) => item.workId !== work.id));
+      } else {
+        const item = await api<BookshelfItem>(`/api/v1/works/${work.id}/bookshelf`, { method: 'POST' }, token);
+        setAccountBookshelf((items) => [item, ...items.filter((old) => old.workId !== item.workId)]);
+      }
+    } catch (error) {
+      setAccountError(errorMessage(error));
+    } finally {
+      setBookshelfLoadingWorkId(null);
     }
   }
 
@@ -1272,6 +1365,8 @@ export function App() {
     setToken('');
     setProfile(null);
     setPendingPayment(null);
+    setAccountBookshelf([]);
+    setAccountReadingProgress([]);
     setAccountOpen(false);
     setNotice('已退出登录。');
   }
@@ -1420,11 +1515,14 @@ export function App() {
         </>
       ) : route.kind === 'work' ? (
         <WorkDetailPage
+          bookshelfLoading={bookshelfLoadingWorkId === detailWork?.id}
           chapters={chapters}
+          isBookmarked={detailWork ? bookshelfWorkIds.has(detailWork.id) : false}
           work={detailWork}
           onBack={showList}
           onOpenChapter={openChapter}
           onPurchaseChapter={purchaseChapter}
+          onToggleBookshelf={toggleBookshelf}
         />
       ) : route.kind === 'reader' ? (
         <ReaderPage
@@ -1438,21 +1536,31 @@ export function App() {
           onOpenChapter={openChapter}
           onPurchaseChapter={purchaseChapter}
         />
-      ) : route.kind === 'account' ? (
+      ) : route.kind === 'account' || route.kind === 'accountBookshelf' || route.kind === 'accountOrders' ? (
         <AccountCenterPage
+          bookshelf={accountBookshelf}
           cancellingOrderNo={accountCancellingOrderNo}
           error={accountError}
           isVip={isVip}
           ledger={accountLedger}
           loading={accountLoading}
+          mode={route.kind === 'accountBookshelf' ? 'bookshelf' : route.kind === 'accountOrders' ? 'orders' : 'home'}
           orderFilter={accountOrderFilter}
           orders={accountOrders}
           payingOrderNo={accountPayingOrderNo}
           profile={profile}
-          onBack={showList}
+          readingProgress={accountReadingProgress}
+          onBack={route.kind === 'account' ? showList : () => navigate('/account')}
           onCancelOrder={cancelAccountOrder}
+          onContinueReading={(item) => navigate(`/works/${item.workId}/chapters/${item.chapterId}/read`)}
           onFilterChange={setAccountOrderFilter}
           onLogin={() => openAuth('login')}
+          onOpenBookshelf={() => navigate('/account/bookshelf')}
+          onOpenOrders={() => {
+            setAccountOrderFilter('ALL');
+            navigate('/account/orders');
+          }}
+          onOpenWork={(workId) => navigate(`/works/${workId}`)}
           onPayOrder={payAccountOrder}
           onRecharge={openRecharge}
         />
@@ -1741,17 +1849,23 @@ function ProductResultList({
 }
 
 function WorkDetailPage({
+  bookshelfLoading,
   work,
   chapters,
+  isBookmarked,
   onBack,
   onOpenChapter,
-  onPurchaseChapter
+  onPurchaseChapter,
+  onToggleBookshelf
 }: {
+  bookshelfLoading: boolean;
   work: Work | null;
   chapters: Chapter[];
+  isBookmarked: boolean;
   onBack: () => void;
   onOpenChapter: (chapter: Chapter) => void;
   onPurchaseChapter: (chapter: Chapter) => void;
+  onToggleBookshelf: (work: Work) => void;
 }) {
   if (!work) return <div className="detailPage"><div className="emptyState">正在加载作品详情...</div></div>;
 
@@ -1764,22 +1878,37 @@ function WorkDetailPage({
           <h1>{work.title}</h1>
           <p>{work.description}</p>
         </div>
+        <div className="detailActions">
+          <button
+            className={`bookshelfButton ${isBookmarked ? 'isActive' : ''}`}
+            type="button"
+            disabled={bookshelfLoading}
+            onClick={() => onToggleBookshelf(work)}
+          >
+            <Bookmark size={16} /> {bookshelfLoading ? '处理中...' : isBookmarked ? '移出书架' : '加入书架'}
+          </button>
+        </div>
       </div>
       <article className="detailBoard">
         <img src={work.coverUrl} alt={work.title} />
         <div>
           <p className="eyebrow">{work.author}</p>
           <div className="chapterList">
-            {chapters.map((chapter) => (
-              <div className="chapterRow" key={chapter.id}>
-                <span>{chapter.chapterNo.toString().padStart(2, '0')} · {chapter.title}</span>
-                <div>
-                  {chapter.free ? <small>FREE</small> : <small><Lock size={12} /> {chapter.pricePoints}积分</small>}
-                  <button onClick={() => onOpenChapter(chapter)}><BookOpen size={15} /> 阅读</button>
-                  {!chapter.free && <button className="secondary" onClick={() => onPurchaseChapter(chapter)}><Ticket size={15} /> 兑换</button>}
+            {chapters.map((chapter) => {
+              const readable = chapterIsReadable(chapter);
+              return (
+                <div className="chapterRow" key={chapter.id}>
+                  <span>{chapter.chapterNo.toString().padStart(2, '0')} · {chapter.title}</span>
+                  <div>
+                    <small className={`chapterAccess ${readable ? 'isReadable' : ''}`}>
+                      {readable ? <BookOpen size={12} /> : <Lock size={12} />} {chapterAccessLabel(chapter)}
+                    </small>
+                    <button onClick={() => onOpenChapter(chapter)}><BookOpen size={15} /> 阅读</button>
+                    {!readable && <button className="secondary" onClick={() => onPurchaseChapter(chapter)}><Ticket size={15} /> 兑换</button>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </article>
@@ -1846,7 +1975,9 @@ function ReaderPage({
               >
                 <span>{chapter.chapterNo.toString().padStart(2, '0')}</span>
                 <b>{chapter.title}</b>
-                {!chapter.free && <small><Lock size={12} /> {chapter.pricePoints}积分</small>}
+                <small>
+                  {chapterIsReadable(chapter) ? <BookOpen size={12} /> : <Lock size={12} />} {chapterAccessLabel(chapter)}
+                </small>
               </button>
             ))}
           </div>
@@ -2069,35 +2200,49 @@ function CartPanel({
 }
 
 function AccountCenterPage({
+  bookshelf,
   cancellingOrderNo,
   error,
   isVip,
   ledger,
   loading,
+  mode,
   orderFilter,
   orders,
   payingOrderNo,
   profile,
+  readingProgress,
   onBack,
   onCancelOrder,
+  onContinueReading,
   onFilterChange,
   onLogin,
+  onOpenBookshelf,
+  onOpenOrders,
+  onOpenWork,
   onPayOrder,
   onRecharge
 }: {
+  bookshelf: BookshelfItem[];
   cancellingOrderNo: string;
   error: string;
   isVip: boolean;
   ledger: PointsLedgerView[];
   loading: boolean;
+  mode: 'home' | 'bookshelf' | 'orders';
   orderFilter: AccountOrderFilter;
   orders: OrderView[];
   payingOrderNo: string;
   profile: Profile | null;
+  readingProgress: ReadingProgress[];
   onBack: () => void;
   onCancelOrder: (order: OrderView) => void;
+  onContinueReading: (item: ReadingProgress) => void;
   onFilterChange: (filter: AccountOrderFilter) => void;
   onLogin: () => void;
+  onOpenBookshelf: () => void;
+  onOpenOrders: () => void;
+  onOpenWork: (workId: number) => void;
   onPayOrder: (order: OrderView) => void;
   onRecharge: () => void;
 }) {
@@ -2108,6 +2253,8 @@ function AccountCenterPage({
     [orders, selectedOrderNo]
   );
   const paidOrders = orders.filter((order) => order.status === 'PAID').length;
+  const latestProgress = readingProgress[0] ?? null;
+  const pageTitle = mode === 'bookshelf' ? '我的书架' : mode === 'orders' ? '我的订单' : '个人中心';
 
   useEffect(() => {
     if (selectedOrderNo && !selectedOrder) {
@@ -2115,13 +2262,19 @@ function AccountCenterPage({
     }
   }, [selectedOrderNo, selectedOrder]);
 
+  useEffect(() => {
+    if (mode !== 'orders' && selectedOrderNo) {
+      setSelectedOrderNo('');
+    }
+  }, [mode, selectedOrderNo]);
+
   return (
-    <section className="accountPage">
-      <button className="backButton" type="button" onClick={onBack}>返回首页</button>
+    <section className={`accountPage accountMode-${mode}`}>
+      <button className="backButton" type="button" onClick={onBack}>{mode === 'home' ? '返回首页' : '返回个人中心'}</button>
 
       <header className="accountHero">
         <div>
-          <h1>个人中心</h1>
+          <h1>{pageTitle}</h1>
         </div>
         {profile ? (
           <button type="button" onClick={onRecharge}>
@@ -2165,6 +2318,74 @@ function AccountCenterPage({
               <span>订单</span>
               <b>{orders.length}</b>
               <small>{paidOrders} 个已完成</small>
+            </article>
+          </section>
+
+          {mode === 'home' && (
+            <section className="accountEntryGrid" aria-label="个人中心入口">
+              <button type="button" className="accountEntryCard" onClick={onOpenBookshelf}>
+                <Bookmark size={22} />
+                <span>
+                  <b>我的书架</b>
+                  <small>{bookshelf.length ? `${bookshelf.length} 部作品` : '查看收藏作品'}</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+              <button type="button" className="accountEntryCard" onClick={onOpenOrders}>
+                <Ticket size={22} />
+                <span>
+                  <b>我的订单</b>
+                  <small>{orders.length ? `${orders.length} 个订单` : '查看购买记录'}</small>
+                </span>
+                <ChevronRight size={18} />
+              </button>
+            </section>
+          )}
+
+          <section className="accountLibraryGrid">
+            <article className="accountPanel accountContinuePanel">
+              <div className="accountPanelHead">
+                <div>
+                  <h2>继续阅读</h2>
+                </div>
+              </div>
+              {latestProgress ? (
+                <button type="button" className="accountContinueCard" onClick={() => onContinueReading(latestProgress)}>
+                  <img src={latestProgress.coverUrl} alt={latestProgress.title} />
+                  <span>
+                    <small>{latestProgress.workType} · {latestProgress.category}</small>
+                    <b>{latestProgress.title}</b>
+                    <em>{latestProgress.chapterNo.toString().padStart(2, '0')} · {latestProgress.chapterTitle}</em>
+                    <strong>继续阅读</strong>
+                  </span>
+                </button>
+              ) : (
+                <div className="accountEmpty">暂无阅读记录。</div>
+              )}
+            </article>
+
+            <article className="accountPanel accountBookshelfPanel">
+              <div className="accountPanelHead">
+                <div>
+                  <h2>我的书架</h2>
+                </div>
+              </div>
+              {bookshelf.length ? (
+                <div className="accountBookshelfList">
+                  {bookshelf.map((item) => (
+                    <button type="button" className="accountBookshelfItem" key={item.workId} onClick={() => onOpenWork(item.workId)}>
+                      <img src={item.coverUrl} alt={item.title} />
+                      <span>
+                        <small>{item.workType} · {item.category}</small>
+                        <b>{item.title}</b>
+                        <em>{item.lastChapterId ? `读到 ${item.lastChapterNo?.toString().padStart(2, '0')} · ${item.lastChapterTitle}` : '尚未开始阅读'}</em>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="accountEmpty">书架是空的。</div>
+              )}
             </article>
           </section>
 
