@@ -67,7 +67,9 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                 || path.startsWith("/api/v1/checkins")
                 || path.startsWith("/api/v1/cart")
                 || path.startsWith("/api/v1/orders")
+                || path.startsWith("/api/v1/reading")
                 || path.startsWith("/api/v1/vip")
+                || path.contains("/bookshelf")
                 || path.contains("/purchase")
                 || path.startsWith("/api/v1/payments");
     }

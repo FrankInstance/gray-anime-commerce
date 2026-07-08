@@ -37,7 +37,7 @@ spring:
             - id: content-service
               uri: lb://content-service
               predicates:
-                - Path=/api/v1/works/**,/api/v1/chapters/**,/api/v1/admin/works/**
+                - Path=/api/v1/works/**,/api/v1/chapters/**,/api/v1/reading/**,/api/v1/admin/works/**
             - id: shop-service
               uri: lb://shop-service
               predicates:

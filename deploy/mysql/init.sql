@@ -92,6 +92,28 @@ CREATE TABLE IF NOT EXISTS chapter_entitlement (
   UNIQUE KEY uk_entitlement_user_chapter (user_id, chapter_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_bookshelf (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  work_id BIGINT NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  UNIQUE KEY uk_bookshelf_user_work (user_id, work_id),
+  INDEX idx_bookshelf_user_updated (user_id, updated_at)
+);
+
+CREATE TABLE IF NOT EXISTS reading_progress (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  work_id BIGINT NOT NULL,
+  chapter_id BIGINT NOT NULL,
+  chapter_no INT NOT NULL,
+  chapter_title VARCHAR(160) NOT NULL,
+  updated_at DATETIME NOT NULL,
+  UNIQUE KEY uk_progress_user_work (user_id, work_id),
+  INDEX idx_progress_user_updated (user_id, updated_at)
+);
+
 CREATE TABLE IF NOT EXISTS product (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   title VARCHAR(160) NOT NULL,
