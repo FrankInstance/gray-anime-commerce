@@ -1,3 +1,10 @@
+x-backend-healthcheck: &backend-healthcheck
+  test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+  interval: 10s
+  timeout: 5s
+  retries: 30
+  start_period: 30s
+
 services:
   mysql:
     image: mysql:8.4
@@ -20,6 +27,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
+    restart: unless-stopped
 
   redis:
     image: redis:7.4-alpine
@@ -27,6 +36,13 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -38,6 +54,13 @@ services:
       - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
 
   nacos:
     image: nacos/nacos-server:v2.4.3
@@ -52,6 +75,13 @@ services:
       - "9848:9848"
     volumes:
       - nacos_data:/home/nacos/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness | grep -q OK"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
 
   minio:
     image: quay.io/minio/minio:latest
@@ -64,6 +94,7 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    restart: unless-stopped
 
   gateway:
     build:
@@ -79,7 +110,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - nacos
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   user-service:
     build:
@@ -101,10 +135,16 @@ services:
       JWT_SECRET: dev-secret-dev-secret-dev-secret-123456
       JAVA_OPTS: "-Xms128m -Xmx256m"
     depends_on:
-      - mysql
-      - redis
-      - rabbitmq
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   content-service:
     build:
@@ -114,9 +154,14 @@ services:
         SERVICE_NAME: content-service
     environment: *service-env
     depends_on:
-      - mysql
-      - redis
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   shop-service:
     build:
@@ -126,9 +171,14 @@ services:
         SERVICE_NAME: shop-service
     environment: *service-env
     depends_on:
-      - mysql
-      - redis
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   inventory-service:
     build:
@@ -138,9 +188,14 @@ services:
         SERVICE_NAME: inventory-service
     environment: *service-env
     depends_on:
-      - mysql
-      - redis
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   order-service:
     build:
@@ -150,10 +205,16 @@ services:
         SERVICE_NAME: order-service
     environment: *service-env
     depends_on:
-      - mysql
-      - rabbitmq
-      - nacos
-      - inventory-service
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   payment-service:
     build:
@@ -163,10 +224,16 @@ services:
         SERVICE_NAME: payment-service
     environment: *service-env
     depends_on:
-      - mysql
-      - rabbitmq
-      - nacos
-      - inventory-service
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      inventory-service:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   ingestion-service:
     build:
@@ -176,9 +243,14 @@ services:
         SERVICE_NAME: ingestion-service
     environment: *service-env
     depends_on:
-      - mysql
-      - rabbitmq
-      - nacos
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
 
   frontend:
     build:
@@ -187,7 +259,9 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   mysql_data:

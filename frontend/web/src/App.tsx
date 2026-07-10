@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   ShoppingBag,
+  SlidersHorizontal,
   Sparkles,
   Ticket,
   Trash2,
@@ -21,7 +22,7 @@ import {
   UserRound,
   X
 } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type ApiResponse<T> = { code: string; message: string; data: T; traceId: string };
 type PageResult<T> = { items: T[]; page: number; size: number; total: number };
@@ -93,6 +94,15 @@ type RechargeOption = {
 };
 type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
 type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
+type BookshelfSort = 'recentReading' | 'recentAdded';
+type ReaderTheme = 'night' | 'dim' | 'paper';
+type ReaderWidth = 'compact' | 'standard' | 'wide';
+type ReaderSettings = {
+  fontSize: number;
+  lineHeight: number;
+  theme: ReaderTheme;
+  width: ReaderWidth;
+};
 type AppRoute =
   | { kind: 'list' }
   | { kind: 'account' }
@@ -105,8 +115,20 @@ type AppRoute =
 const PAGE_SIZE = 10;
 const AUTH_STORAGE_KEY = 'gray-shelf-auth-v1';
 const CART_STORAGE_KEY = 'gray-shelf-cart-v1';
+const READER_SETTINGS_STORAGE_KEY = 'gray-shelf-reader-settings-v1';
 const MAX_CART_QUANTITY = 99;
 const PURCHASE_LIMIT_MESSAGE = '限购商品，你已超出购买数量';
+const DEFAULT_READER_SETTINGS: ReaderSettings = {
+  fontSize: 20,
+  lineHeight: 2,
+  theme: 'night',
+  width: 'standard'
+};
+const readerWidthPx: Record<ReaderWidth, number> = {
+  compact: 680,
+  standard: 760,
+  wide: 920
+};
 
 const sections: { key: SectionKey; label: string }[] = [
   { key: 'NOVEL', label: '轻小说' },
@@ -119,6 +141,23 @@ const accountOrderFilters: { value: AccountOrderFilter; label: string }[] = [
   { value: 'PENDING_PAYMENT', label: '待支付' },
   { value: 'PAID', label: '已完成' },
   { value: 'CANCELLED', label: '已取消' }
+];
+
+const bookshelfSortOptions: { value: BookshelfSort; label: string }[] = [
+  { value: 'recentReading', label: '最近阅读' },
+  { value: 'recentAdded', label: '最近加入' }
+];
+
+const readerThemeOptions: { value: ReaderTheme; label: string }[] = [
+  { value: 'night', label: '夜色' },
+  { value: 'dim', label: '低光' },
+  { value: 'paper', label: '纸感' }
+];
+
+const readerWidthOptions: { value: ReaderWidth; label: string }[] = [
+  { value: 'compact', label: '窄' },
+  { value: 'standard', label: '标准' },
+  { value: 'wide', label: '宽' }
 ];
 
 const rechargeOptions: RechargeOption[] = [
@@ -228,6 +267,40 @@ function shortDateTime(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function dateValue(value: string | null | undefined) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeReaderSettings(settings: Partial<ReaderSettings>): ReaderSettings {
+  const theme = (readerThemeOptions.some((option) => option.value === settings.theme) ? settings.theme : DEFAULT_READER_SETTINGS.theme) as ReaderTheme;
+  const width = (readerWidthOptions.some((option) => option.value === settings.width) ? settings.width : DEFAULT_READER_SETTINGS.width) as ReaderWidth;
+  const rawFontSize = typeof settings.fontSize === 'number' ? settings.fontSize : DEFAULT_READER_SETTINGS.fontSize;
+  const rawLineHeight = typeof settings.lineHeight === 'number' ? settings.lineHeight : DEFAULT_READER_SETTINGS.lineHeight;
+  return {
+    fontSize: Math.round(clampNumber(rawFontSize, 16, 26)),
+    lineHeight: Math.round(clampNumber(rawLineHeight, 1.6, 2.4) * 10) / 10,
+    theme,
+    width
+  };
+}
+
+function loadStoredReaderSettings() {
+  if (typeof window === 'undefined') return DEFAULT_READER_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(READER_SETTINGS_STORAGE_KEY);
+    if (!raw) return DEFAULT_READER_SETTINGS;
+    return sanitizeReaderSettings(JSON.parse(raw) as Partial<ReaderSettings>);
+  } catch {
+    return DEFAULT_READER_SETTINGS;
+  }
 }
 
 function orderTypeLabel(type: string) {
@@ -579,6 +652,7 @@ export function App() {
   const [readerData, setReaderData] = useState<ReaderResponse | null>(null);
   const [readerLoading, setReaderLoading] = useState(false);
   const [readerError, setReaderError] = useState('');
+  const [readerSettings, setReaderSettings] = useState<ReaderSettings>(() => loadStoredReaderSettings());
   const [accountOrders, setAccountOrders] = useState<OrderView[]>([]);
   const [accountLedger, setAccountLedger] = useState<PointsLedgerView[]>([]);
   const [accountBookshelf, setAccountBookshelf] = useState<BookshelfItem[]>([]);
@@ -716,6 +790,10 @@ export function App() {
   }, [cartItems]);
 
   useEffect(() => {
+    window.localStorage.setItem(READER_SETTINGS_STORAGE_KEY, JSON.stringify(readerSettings));
+  }, [readerSettings]);
+
+  useEffect(() => {
     if (route.kind !== 'list') return;
 
     const params = new URLSearchParams({
@@ -817,6 +895,10 @@ export function App() {
     window.history.pushState(null, '', path);
     setRoute(parseRoute(path));
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function updateReaderSettings(patch: Partial<ReaderSettings>) {
+    setReaderSettings((settings) => sanitizeReaderSettings({ ...settings, ...patch }));
   }
 
   function showList() {
@@ -1531,10 +1613,12 @@ export function App() {
           error={readerError}
           loading={readerLoading}
           reader={readerData}
+          settings={readerSettings}
           work={detailWork}
           onBack={() => navigate(`/works/${route.workId}`)}
           onOpenChapter={openChapter}
           onPurchaseChapter={purchaseChapter}
+          onSettingsChange={updateReaderSettings}
         />
       ) : route.kind === 'account' || route.kind === 'accountBookshelf' || route.kind === 'accountOrders' ? (
         <AccountCenterPage
@@ -1923,9 +2007,11 @@ function ReaderPage({
   reader,
   loading,
   error,
+  settings,
   onBack,
   onOpenChapter,
-  onPurchaseChapter
+  onPurchaseChapter,
+  onSettingsChange
 }: {
   work: Work | null;
   chapters: Chapter[];
@@ -1933,9 +2019,11 @@ function ReaderPage({
   reader: ReaderResponse | null;
   loading: boolean;
   error: string;
+  settings: ReaderSettings;
   onBack: () => void;
   onOpenChapter: (chapter: Chapter) => void;
   onPurchaseChapter: (chapter: Chapter) => void;
+  onSettingsChange: (patch: Partial<ReaderSettings>) => void;
 }) {
   const currentIndex = chapters.findIndex((chapter) => chapter.id === currentChapterId);
   const currentChapter = currentIndex >= 0 ? chapters[currentIndex] : null;
@@ -1943,6 +2031,15 @@ function ReaderPage({
   const nextChapter = currentIndex >= 0 && currentIndex < chapters.length - 1 ? chapters[currentIndex + 1] : null;
   const title = reader?.title ?? currentChapter?.title ?? '章节阅读';
   const paragraphs = (reader?.text || '').split(/\n+/).map((text) => text.trim()).filter(Boolean);
+  const readerStyle = {
+    '--reader-font-size': `${settings.fontSize}px`,
+    '--reader-line-height': String(settings.lineHeight),
+    '--reader-max-width': `${readerWidthPx[settings.width]}px`
+  } as CSSProperties;
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentChapterId]);
 
   return (
     <section className="readerPage">
@@ -1964,33 +2061,40 @@ function ReaderPage({
 
       <div className="readerLayout">
         <aside className="readerToc" aria-label="章节目录">
-          <p className="eyebrow">目录</p>
-          <div className="tocList">
-            {chapters.map((chapter) => (
-              <button
-                className={`tocItem ${chapter.id === currentChapterId ? 'active' : ''}`}
-                key={chapter.id}
-                type="button"
-                onClick={() => onOpenChapter(chapter)}
-              >
-                <span>{chapter.chapterNo.toString().padStart(2, '0')}</span>
-                <b>{chapter.title}</b>
-                <small>
-                  {chapterIsReadable(chapter) ? <BookOpen size={12} /> : <Lock size={12} />} {chapterAccessLabel(chapter)}
-                </small>
-              </button>
-            ))}
+          <div className="tocHead">
+            <p className="eyebrow">目录</p>
+            <small>{currentChapter ? `${currentChapter.chapterNo} / ${chapters.length}` : `${chapters.length} 章`}</small>
           </div>
+          <div className="tocList">
+            {chapters.map((chapter) => {
+              const readable = chapterIsReadable(chapter);
+              return (
+                <button
+                  className={`tocItem ${chapter.id === currentChapterId ? 'active' : ''} ${readable ? 'isReadable' : 'isLocked'}`}
+                  key={chapter.id}
+                  type="button"
+                  onClick={() => onOpenChapter(chapter)}
+                >
+                  <span>{chapter.chapterNo.toString().padStart(2, '0')}</span>
+                  <b>{chapter.title}</b>
+                  <small>
+                    {readable ? <BookOpen size={12} /> : <Lock size={12} />} {chapterAccessLabel(chapter)}
+                  </small>
+                </button>
+              );
+            })}
+          </div>
+          <ReaderSettingsPanel settings={settings} onChange={onSettingsChange} />
         </aside>
 
-        <article className="readerPane">
+        <article className={`readerPane readerTheme-${settings.theme}`} style={readerStyle}>
           {loading ? (
             <div className="emptyState">正在加载章节内容...</div>
           ) : error ? (
             <div className="readerLocked">
               <Lock size={24} />
               <h2>章节暂未解锁</h2>
-              <p>{currentChapter ? `该章节需要 ${currentChapter.pricePoints} 积分兑换，购买后永久可读；VIP 可免费阅读。` : error}</p>
+              <p>{currentChapter ? `需要 ${currentChapter.pricePoints} 积分，VIP 可直接阅读。` : error}</p>
               {currentChapter && !currentChapter.free && (
                 <button type="button" onClick={() => onPurchaseChapter(currentChapter)}>
                   <Ticket size={16} /> 兑换章节
@@ -2027,6 +2131,83 @@ function ReaderPage({
         </article>
       </div>
     </section>
+  );
+}
+
+function ReaderSettingsPanel({
+  settings,
+  onChange
+}: {
+  settings: ReaderSettings;
+  onChange: (patch: Partial<ReaderSettings>) => void;
+}) {
+  return (
+    <div className="readerSettingsPanel" aria-label="阅读设置">
+      <div className="readerToolHead">
+        <SlidersHorizontal size={15} />
+        <span>阅读设置</span>
+      </div>
+
+      <label className="readerRange">
+        <span>字号</span>
+        <input
+          type="range"
+          min={16}
+          max={26}
+          step={1}
+          value={settings.fontSize}
+          onChange={(event) => onChange({ fontSize: Number(event.target.value) })}
+        />
+        <b>{settings.fontSize}</b>
+      </label>
+
+      <label className="readerRange">
+        <span>行距</span>
+        <input
+          type="range"
+          min={1.6}
+          max={2.4}
+          step={0.1}
+          value={settings.lineHeight}
+          onChange={(event) => onChange({ lineHeight: Number(event.target.value) })}
+        />
+        <b>{settings.lineHeight.toFixed(1)}</b>
+      </label>
+
+      <div className="readerSegment" aria-label="背景">
+        <span>背景</span>
+        <div className="readerSegmentButtons">
+          {readerThemeOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={settings.theme === option.value ? 'isActive' : ''}
+              aria-pressed={settings.theme === option.value}
+              onClick={() => onChange({ theme: option.value })}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="readerSegment" aria-label="宽度">
+        <span>宽度</span>
+        <div className="readerSegmentButtons">
+          {readerWidthOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={settings.width === option.value ? 'isActive' : ''}
+              aria-pressed={settings.width === option.value}
+              onClick={() => onChange({ width: option.value })}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2248,10 +2429,20 @@ function AccountCenterPage({
 }) {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [selectedOrderNo, setSelectedOrderNo] = useState('');
+  const [bookshelfSort, setBookshelfSort] = useState<BookshelfSort>('recentReading');
   const selectedOrder = useMemo(
     () => orders.find((order) => order.orderNo === selectedOrderNo) ?? null,
     [orders, selectedOrderNo]
   );
+  const sortedBookshelf = useMemo(() => {
+    const next = [...bookshelf];
+    next.sort((left, right) => {
+      const leftDate = bookshelfSort === 'recentAdded' ? left.addedAt : left.updatedAt;
+      const rightDate = bookshelfSort === 'recentAdded' ? right.addedAt : right.updatedAt;
+      return dateValue(rightDate) - dateValue(leftDate);
+    });
+    return next;
+  }, [bookshelf, bookshelfSort]);
   const paidOrders = orders.filter((order) => order.status === 'PAID').length;
   const latestProgress = readingProgress[0] ?? null;
   const pageTitle = mode === 'bookshelf' ? '我的书架' : mode === 'orders' ? '我的订单' : '个人中心';
@@ -2369,10 +2560,23 @@ function AccountCenterPage({
                 <div>
                   <h2>我的书架</h2>
                 </div>
+                <div className="accountFilterBar bookshelfSortBar" aria-label="书架排序">
+                  {bookshelfSortOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={bookshelfSort === option.value ? 'isActive' : ''}
+                      aria-pressed={bookshelfSort === option.value}
+                      onClick={() => setBookshelfSort(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               {bookshelf.length ? (
                 <div className="accountBookshelfList">
-                  {bookshelf.map((item) => (
+                  {sortedBookshelf.map((item) => (
                     <button type="button" className="accountBookshelfItem" key={item.workId} onClick={() => onOpenWork(item.workId)}>
                       <img src={item.coverUrl} alt={item.title} />
                       <span>
