@@ -5,7 +5,7 @@
 ## Stack
 
 - Frontend: React + TypeScript + Vite
-- Backend: Java 17, Spring Boot 3.5.x, Spring Cloud 2025.0.x, Spring Cloud Alibaba 2025.0.x
+- Backend: Java 21, Spring Boot 3.5.x, Spring Cloud 2025.0.x, Spring Cloud Alibaba 2025.0.x
 - Data: MySQL 8, Redis, RabbitMQ, MinIO
 - Deployment: Docker Compose on one ECS instance
 
@@ -77,7 +77,7 @@ npm run test:core:web
 - 代码推送到 `master`。
 - 在 GitHub Actions 页面手动触发。
 
-CI 使用 Java 17、Node.js 20、Chromium 和 Docker Compose。失败时会保留 7 天的容器日志、Playwright 截图和 trace。
+CI 使用 Java 21、Node.js 20、Chromium 和 Docker Compose。失败时会保留 7 天的容器日志、Playwright 截图和 trace。
 
 首次工作流成功运行后，可在 GitHub 的 `master` Ruleset 中启用“必须通过状态检查”，选择 `Core flow regression`，并要求通过 Pull Request 合并。此后使用：
 
