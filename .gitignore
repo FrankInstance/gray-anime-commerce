@@ -12,6 +12,9 @@ dist/
 .vite/
 .m2/
 .npm-cache/
+output/playwright/
+playwright-report/
+test-results/
 
 data/
 uploads/

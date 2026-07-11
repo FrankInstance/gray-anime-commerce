@@ -15,13 +15,11 @@ import com.gray.anime.order.infrastructure.mapper.PaymentMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 public class OrderLifecycleService {
-    private static final Duration PAYMENT_TIMEOUT = Duration.ofMinutes(10);
     private static final int EXPIRE_BATCH_SIZE = 50;
 
     private final OrderMapper orderMapper;
@@ -29,19 +27,22 @@ public class OrderLifecycleService {
     private final PaymentMapper paymentMapper;
     private final OutboxEventMapper outboxMapper;
     private final InventoryClient inventoryClient;
+    private final OrderExpirationPolicy expirationPolicy;
 
     public OrderLifecycleService(OrderMapper orderMapper, OrderItemMapper itemMapper, PaymentMapper paymentMapper,
-                                 OutboxEventMapper outboxMapper, InventoryClient inventoryClient) {
+                                 OutboxEventMapper outboxMapper, InventoryClient inventoryClient,
+                                 OrderExpirationPolicy expirationPolicy) {
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.paymentMapper = paymentMapper;
         this.outboxMapper = outboxMapper;
         this.inventoryClient = inventoryClient;
+        this.expirationPolicy = expirationPolicy;
     }
 
     @Transactional
     public int cancelExpiredPendingOrders() {
-        LocalDateTime cutoff = LocalDateTime.now().minus(PAYMENT_TIMEOUT);
+        LocalDateTime cutoff = expirationPolicy.cutoff(LocalDateTime.now());
         List<OrderRecord> orders = orderMapper.selectList(new LambdaQueryWrapper<OrderRecord>()
                 .eq(OrderRecord::getStatus, OrderStatus.PENDING_PAYMENT.name())
                 .le(OrderRecord::getCreatedAt, cutoff)

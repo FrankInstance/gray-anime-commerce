@@ -2118,23 +2118,19 @@ function ReaderPage({
     const savedPercent = normalizeProgressPercent(reader.progressPercent);
     lastSavedPercentRef.current = savedPercent;
     let cancelled = false;
-    const timers: number[] = [];
-    const restore = (final = false) => {
+    const restore = () => {
       if (cancelled) return;
+      const root = document.documentElement;
+      const previousScrollBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = 'auto';
       window.scrollTo({ top: readerScrollTopForPercent(progressTargetRef.current, savedPercent), behavior: 'auto' });
-      if (final) {
-        restoredRef.current = true;
-      }
+      root.style.scrollBehavior = previousScrollBehavior;
+      restoredRef.current = true;
     };
-    const frameId = window.requestAnimationFrame(() => {
-      restore();
-      timers.push(window.setTimeout(() => restore(), 120));
-      timers.push(window.setTimeout(() => restore(true), 360));
-    });
+    const frameId = window.requestAnimationFrame(restore);
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(frameId);
-      timers.forEach((timer) => window.clearTimeout(timer));
     };
   }, [currentChapterId, error, loading, reader]);
 
