@@ -49,3 +49,22 @@ Development ports:
 - MinIO console: `9001`
 
 The project intentionally uses demo/open-content ingestion and does not implement unauthorized novel or manga scraping.
+
+## Core Regression Tests
+
+先启动并等待 Docker Compose 服务健康：
+
+```powershell
+docker compose up -d
+npm run test:core
+```
+
+`test:core` 会依次运行订单超时策略测试、真实网关 API 流程和 Chrome 页面流程。也可以单独运行：
+
+```powershell
+npm run test:core:backend
+npm run test:core:api
+npm run test:core:web
+```
+
+可通过 `CORE_API_BASE_URL` 和 `CORE_WEB_BASE_URL` 指向其他测试环境。API 与页面测试会使用随机邮箱注册隔离账号。
