@@ -5,7 +5,7 @@
 ## Stack
 
 - Frontend: React + TypeScript + Vite
-- Backend: Java 17, Spring Boot 3.5.x, Spring Cloud 2025.0.x, Spring Cloud Alibaba 2025.0.x
+- Backend: Java 21, Spring Boot 3.5.x, Spring Cloud 2025.0.x, Spring Cloud Alibaba 2025.0.x
 - Data: MySQL 8, Redis, RabbitMQ, MinIO
 - Deployment: Docker Compose on one ECS instance
 
@@ -68,3 +68,19 @@ npm run test:core:web
 ```
 
 可通过 `CORE_API_BASE_URL` 和 `CORE_WEB_BASE_URL` 指向其他测试环境。API 与页面测试会使用随机邮箱注册隔离账号。
+
+## GitHub CI
+
+`.github/workflows/core-flow.yml` 会在以下情况运行完整核心回归：
+
+- 提交以 `master` 为目标分支的 Pull Request。
+- 代码推送到 `master`。
+- 在 GitHub Actions 页面手动触发。
+
+CI 使用 Java 21、Node.js 20、Chromium 和 Docker Compose。失败时会保留 7 天的容器日志、Playwright 截图和 trace。
+
+首次工作流成功运行后，可在 GitHub 的 `master` Ruleset 中启用“必须通过状态检查”，选择 `Core flow regression`，并要求通过 Pull Request 合并。此后使用：
+
+```text
+功能分支 -> 推送远端 -> 创建 Pull Request -> Core flow regression 通过 -> 合并
+```

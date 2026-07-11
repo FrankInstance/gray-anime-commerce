@@ -12,7 +12,7 @@ export default defineConfig({
   outputDir: 'output/playwright',
   use: {
     baseURL: process.env.CORE_WEB_BASE_URL ?? 'http://127.0.0.1',
-    channel: 'chrome',
+    channel: process.env.CI ? undefined : 'chrome',
     headless: true,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure'
