@@ -13,6 +13,7 @@ public record ReadingProgressView(
         Long chapterId,
         Integer chapterNo,
         String chapterTitle,
+        Integer progressPercent,
         LocalDateTime updatedAt
 ) {
 }

@@ -14,6 +14,7 @@ public record BookshelfItemView(
         Long lastChapterId,
         Integer lastChapterNo,
         String lastChapterTitle,
+        Integer progressPercent,
         LocalDateTime addedAt,
         LocalDateTime updatedAt
 ) {
