@@ -7,6 +7,7 @@ import com.gray.anime.content.application.ContentApplicationService;
 import com.gray.anime.content.interfaces.dto.BookshelfItemView;
 import com.gray.anime.content.interfaces.dto.ChapterView;
 import com.gray.anime.content.interfaces.dto.ReaderResponse;
+import com.gray.anime.content.interfaces.dto.ReadingProgressUpdateRequest;
 import com.gray.anime.content.interfaces.dto.ReadingProgressView;
 import com.gray.anime.content.interfaces.dto.WorkCard;
 import com.gray.anime.content.interfaces.dto.WorkDetail;
@@ -77,5 +78,10 @@ public class ContentController {
             HttpServletRequest request
     ) {
         return ApiResponse.ok(service.readingProgress(CurrentUser.from(request), page, size));
+    }
+
+    @PutMapping("/reading/progress")
+    ApiResponse<ReadingProgressView> updateReadingProgress(@RequestBody ReadingProgressUpdateRequest body, HttpServletRequest request) {
+        return ApiResponse.ok(service.updateReadingProgress(CurrentUser.from(request), body));
     }
 }

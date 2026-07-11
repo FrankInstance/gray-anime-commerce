@@ -29,12 +29,13 @@ type PageResult<T> = { items: T[]; page: number; size: number; total: number };
 type Work = { id: number; title: string; workType: string; author: string; category: string; description: string; coverUrl: string; popularity: number };
 type WorkDetail = { work: Work; chapters: Chapter[] };
 type Chapter = { id: number; chapterNo: number; title: string; free: boolean; pricePoints: number; unlocked?: boolean; accessLabel?: string };
-type ReaderResponse = { chapterId: number; title: string; unlocked: boolean; text: string; images: string[] };
+type ReaderResponse = { chapterId: number; title: string; unlocked: boolean; text: string; images: string[]; progressPercent: number };
 type BookshelfItem = Work & {
   workId: number;
   lastChapterId: number | null;
   lastChapterNo: number | null;
   lastChapterTitle: string | null;
+  progressPercent: number;
   addedAt: string;
   updatedAt: string;
 };
@@ -43,6 +44,7 @@ type ReadingProgress = Work & {
   chapterId: number;
   chapterNo: number;
   chapterTitle: string;
+  progressPercent: number;
   updatedAt: string;
 };
 type Product = {
@@ -218,6 +220,15 @@ const fallbackChapters: Chapter[] = [
   { id: 2, chapterNo: 2, title: '第二章 星砂契约', free: false, pricePoints: 20 }
 ];
 
+const fallbackReaderText = [
+  '列车驶过星轨，书页像薄雪一样翻飞。',
+  '车窗外的废弃轨道铺向夜色深处，少女把书签夹进泛黄的书页，听见远处传来旧书店的铃声。',
+  ...Array.from({ length: 20 }, (_, index) => (
+    `第 ${index + 1} 段：车厢里的灯光随着铁轨轻轻晃动，窗外的霓虹从蓝色变成粉色，又被雨水拉成长长的线。魔女翻开没有封面的书，把散落的票根一张张贴回去。每贴好一张，座位上就会出现一段新的记忆：有人在末班车上告白，有人在旧书店门口道别，也有人只是安静地读完最后一页。`
+  )),
+  '列车抵达终点时，天色还没有亮。魔女合上书箱，铃铛轻轻响了一声。她知道，只要还有人愿意继续读下去，故事就不会真正结束。'
+].join('\n\n');
+
 async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -277,6 +288,29 @@ function dateValue(value: string | null | undefined) {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeProgressPercent(value: number | null | undefined) {
+  return Math.round(clampNumber(Number.isFinite(value ?? NaN) ? Number(value) : 0, 0, 100));
+}
+
+function progressPercentText(value: number | null | undefined) {
+  return `${normalizeProgressPercent(value)}%`;
+}
+
+function readerProgressPercent(target: HTMLElement | null) {
+  if (typeof window === 'undefined' || !target) return 0;
+  const targetTop = target.getBoundingClientRect().top + window.scrollY;
+  const scrollable = Math.max(0, target.scrollHeight - window.innerHeight);
+  if (scrollable <= 0) return 0;
+  return normalizeProgressPercent(((window.scrollY - targetTop) / scrollable) * 100);
+}
+
+function readerScrollTopForPercent(target: HTMLElement | null, percent: number) {
+  if (typeof window === 'undefined' || !target) return 0;
+  const targetTop = target.getBoundingClientRect().top + window.scrollY;
+  const scrollable = Math.max(0, target.scrollHeight - window.innerHeight);
+  return Math.max(0, Math.round(targetTop + scrollable * normalizeProgressPercent(percent) / 100));
 }
 
 function sanitizeReaderSettings(settings: Partial<ReaderSettings>): ReaderSettings {
@@ -853,8 +887,9 @@ export function App() {
               chapterId: fallbackChapter.id,
               title: fallbackChapter.title,
               unlocked: true,
-              text: '免费章节演示文本：列车驶过星轨，书页像薄雪一样翻飞。\n\n车窗外的废弃轨道铺向夜色深处，少女把书签夹进泛黄的书页，听见远处传来旧书店的铃声。',
-              images: []
+              text: fallbackReaderText,
+              images: [],
+              progressPercent: 0
             });
             return;
           }
@@ -1021,6 +1056,34 @@ export function App() {
       setAccountError(errorMessage(error));
     } finally {
       if (showLoading) setAccountLoading(false);
+    }
+  }
+
+  async function saveReadingProgress(chapterId: number, progressPercent: number) {
+    if (!token) return;
+    try {
+      const progress = await api<ReadingProgress>('/api/v1/reading/progress', {
+        method: 'PUT',
+        body: JSON.stringify({
+          chapterId,
+          progressPercent: normalizeProgressPercent(progressPercent)
+        })
+      }, token);
+      setAccountReadingProgress((items) => [progress, ...items.filter((item) => item.workId !== progress.workId)]);
+      setAccountBookshelf((items) => items.map((item) => (
+        item.workId === progress.workId
+          ? {
+              ...item,
+              lastChapterId: progress.chapterId,
+              lastChapterNo: progress.chapterNo,
+              lastChapterTitle: progress.chapterTitle,
+              progressPercent: progress.progressPercent,
+              updatedAt: progress.updatedAt
+            }
+          : item
+      )));
+    } catch {
+      // Reading progress is a quiet background save; avoid interrupting reading.
     }
   }
 
@@ -1618,6 +1681,7 @@ export function App() {
           onBack={() => navigate(`/works/${route.workId}`)}
           onOpenChapter={openChapter}
           onPurchaseChapter={purchaseChapter}
+          onSaveProgress={saveReadingProgress}
           onSettingsChange={updateReaderSettings}
         />
       ) : route.kind === 'account' || route.kind === 'accountBookshelf' || route.kind === 'accountOrders' ? (
@@ -2011,6 +2075,7 @@ function ReaderPage({
   onBack,
   onOpenChapter,
   onPurchaseChapter,
+  onSaveProgress,
   onSettingsChange
 }: {
   work: Work | null;
@@ -2023,6 +2088,7 @@ function ReaderPage({
   onBack: () => void;
   onOpenChapter: (chapter: Chapter) => void;
   onPurchaseChapter: (chapter: Chapter) => void;
+  onSaveProgress: (chapterId: number, progressPercent: number) => void;
   onSettingsChange: (patch: Partial<ReaderSettings>) => void;
 }) {
   const currentIndex = chapters.findIndex((chapter) => chapter.id === currentChapterId);
@@ -2036,24 +2102,113 @@ function ReaderPage({
     '--reader-line-height': String(settings.lineHeight),
     '--reader-max-width': `${readerWidthPx[settings.width]}px`
   } as CSSProperties;
+  const saveProgressRef = useRef(onSaveProgress);
+  const progressTargetRef = useRef<HTMLDivElement | null>(null);
+  const restoredRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
+  const lastSavedPercentRef = useRef<number | null>(null);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [currentChapterId]);
+    saveProgressRef.current = onSaveProgress;
+  }, [onSaveProgress]);
+
+  useEffect(() => {
+    if (loading || error || !reader) return;
+    restoredRef.current = false;
+    const savedPercent = normalizeProgressPercent(reader.progressPercent);
+    lastSavedPercentRef.current = savedPercent;
+    let cancelled = false;
+    const timers: number[] = [];
+    const restore = (final = false) => {
+      if (cancelled) return;
+      window.scrollTo({ top: readerScrollTopForPercent(progressTargetRef.current, savedPercent), behavior: 'auto' });
+      if (final) {
+        restoredRef.current = true;
+      }
+    };
+    const frameId = window.requestAnimationFrame(() => {
+      restore();
+      timers.push(window.setTimeout(() => restore(), 120));
+      timers.push(window.setTimeout(() => restore(true), 360));
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [currentChapterId, error, loading, reader]);
+
+  useEffect(() => {
+    if (loading || error || !reader) return;
+
+    const queueSave = () => {
+      if (!restoredRef.current) return;
+      const percent = readerProgressPercent(progressTargetRef.current);
+      if (lastSavedPercentRef.current !== null && Math.abs(percent - lastSavedPercentRef.current) < 2 && percent !== 100) {
+        return;
+      }
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+      saveTimerRef.current = window.setTimeout(() => {
+        lastSavedPercentRef.current = percent;
+        saveProgressRef.current(currentChapterId, percent);
+        saveTimerRef.current = null;
+      }, 800);
+    };
+
+    window.addEventListener('scroll', queueSave, { passive: true });
+    window.addEventListener('resize', queueSave);
+    return () => {
+      window.removeEventListener('scroll', queueSave);
+      window.removeEventListener('resize', queueSave);
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (restoredRef.current) {
+        const percent = readerProgressPercent(progressTargetRef.current);
+        lastSavedPercentRef.current = percent;
+        saveProgressRef.current(currentChapterId, percent);
+      }
+    };
+  }, [currentChapterId, error, loading, reader]);
+
+  const saveCurrentProgress = () => {
+    if (!reader || !restoredRef.current) return;
+    const percent = readerProgressPercent(progressTargetRef.current);
+    lastSavedPercentRef.current = percent;
+    restoredRef.current = false;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    saveProgressRef.current(currentChapterId, percent);
+  };
+
+  const openChapterAndSave = (chapter: Chapter) => {
+    saveCurrentProgress();
+    onOpenChapter(chapter);
+  };
+
+  const backAndSave = () => {
+    saveCurrentProgress();
+    onBack();
+  };
 
   return (
     <section className="readerPage">
       <div className="readerTop">
-        <button className="backButton" type="button" onClick={onBack}>返回作品</button>
+        <button className="backButton" type="button" onClick={backAndSave}>返回作品</button>
         <div>
           <p className="eyebrow">{work ? `${work.workType} · ${work.title}` : 'READING'}</p>
           <h1>{title}</h1>
         </div>
         <div className="readerNav">
-          <button type="button" disabled={!previousChapter} onClick={() => previousChapter && onOpenChapter(previousChapter)}>
+          <button type="button" disabled={!previousChapter} onClick={() => previousChapter && openChapterAndSave(previousChapter)}>
             <ChevronLeft size={16} /> 上一章
           </button>
-          <button type="button" disabled={!nextChapter} onClick={() => nextChapter && onOpenChapter(nextChapter)}>
+          <button type="button" disabled={!nextChapter} onClick={() => nextChapter && openChapterAndSave(nextChapter)}>
             下一章 <ChevronRight size={16} />
           </button>
         </div>
@@ -2073,7 +2228,7 @@ function ReaderPage({
                   className={`tocItem ${chapter.id === currentChapterId ? 'active' : ''} ${readable ? 'isReadable' : 'isLocked'}`}
                   key={chapter.id}
                   type="button"
-                  onClick={() => onOpenChapter(chapter)}
+                  onClick={() => openChapterAndSave(chapter)}
                 >
                   <span>{chapter.chapterNo.toString().padStart(2, '0')}</span>
                   <b>{chapter.title}</b>
@@ -2102,7 +2257,7 @@ function ReaderPage({
               )}
             </div>
           ) : (
-            <>
+            <div className="readerArticle" ref={progressTargetRef}>
               <header className="readerArticleHeader">
                 <p className="eyebrow">{work?.author ?? 'Gray Shelf'}</p>
                 <h2>{title}</h2>
@@ -2116,15 +2271,15 @@ function ReaderPage({
                   {paragraphs.length ? paragraphs.map((paragraph, index) => <p key={`${paragraph}-${index}`}>{paragraph}</p>) : <p>该章节暂时没有正文内容。</p>}
                 </div>
               )}
-            </>
+            </div>
           )}
 
           <footer className="readerFooter">
-            <button type="button" disabled={!previousChapter} onClick={() => previousChapter && onOpenChapter(previousChapter)}>
+            <button type="button" disabled={!previousChapter} onClick={() => previousChapter && openChapterAndSave(previousChapter)}>
               <ChevronLeft size={16} /> 上一章
             </button>
-            <button type="button" onClick={onBack}>目录详情</button>
-            <button type="button" disabled={!nextChapter} onClick={() => nextChapter && onOpenChapter(nextChapter)}>
+            <button type="button" onClick={backAndSave}>目录详情</button>
+            <button type="button" disabled={!nextChapter} onClick={() => nextChapter && openChapterAndSave(nextChapter)}>
               下一章 <ChevronRight size={16} />
             </button>
           </footer>
@@ -2546,7 +2701,7 @@ function AccountCenterPage({
                   <span>
                     <small>{latestProgress.workType} · {latestProgress.category}</small>
                     <b>{latestProgress.title}</b>
-                    <em>{latestProgress.chapterNo.toString().padStart(2, '0')} · {latestProgress.chapterTitle}</em>
+                    <em>{latestProgress.chapterNo.toString().padStart(2, '0')} · {latestProgress.chapterTitle} · {progressPercentText(latestProgress.progressPercent)}</em>
                     <strong>继续阅读</strong>
                   </span>
                 </button>
@@ -2582,7 +2737,7 @@ function AccountCenterPage({
                       <span>
                         <small>{item.workType} · {item.category}</small>
                         <b>{item.title}</b>
-                        <em>{item.lastChapterId ? `读到 ${item.lastChapterNo?.toString().padStart(2, '0')} · ${item.lastChapterTitle}` : '尚未开始阅读'}</em>
+                        <em>{item.lastChapterId ? `读到 ${item.lastChapterNo?.toString().padStart(2, '0')} · ${item.lastChapterTitle} · ${progressPercentText(item.progressPercent)}` : '尚未开始阅读'}</em>
                       </span>
                     </button>
                   ))}

@@ -15,6 +15,7 @@ public class ReadingProgress {
     private Long chapterId;
     private Integer chapterNo;
     private String chapterTitle;
+    private Integer progressPercent;
     private LocalDateTime updatedAt;
 
     public Long getId() { return id; }
@@ -29,6 +30,8 @@ public class ReadingProgress {
     public void setChapterNo(Integer chapterNo) { this.chapterNo = chapterNo; }
     public String getChapterTitle() { return chapterTitle; }
     public void setChapterTitle(String chapterTitle) { this.chapterTitle = chapterTitle; }
+    public Integer getProgressPercent() { return progressPercent; }
+    public void setProgressPercent(Integer progressPercent) { this.progressPercent = progressPercent; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

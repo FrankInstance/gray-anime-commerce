@@ -84,15 +84,16 @@ public class ContentApplicationService {
 
     public ReaderResponse reader(Long chapterId, CurrentUser user) {
         Chapter chapter = requireChapter(chapterId);
-        boolean unlocked = Boolean.TRUE.equals(chapter.getFreeFlag()) || user.isVip() || ownsChapter(user.id(), chapterId);
+        boolean unlocked = canReadChapter(user, chapter);
         if (!unlocked) {
             throw new BizException("CHAPTER_LOCKED", "Chapter requires purchase, VIP, or points redemption");
         }
         ChapterContent content = contentMapper.selectOne(new LambdaQueryWrapper<ChapterContent>().eq(ChapterContent::getChapterId, chapterId));
         String images = content == null ? "" : content.getContentImages();
-        recordProgress(user, chapter);
+        ReadingProgress progress = recordProgress(user, chapter, null);
         return new ReaderResponse(chapterId, chapter.getTitle(), true, content == null ? "" : content.getContentText(),
-                images == null || images.isBlank() ? List.of() : Arrays.stream(images.split(",")).map(String::trim).toList());
+                images == null || images.isBlank() ? List.of() : Arrays.stream(images.split(",")).map(String::trim).toList(),
+                progress == null ? 0 : nullToZero(progress.getProgressPercent()));
     }
 
     public PageResult<BookshelfItemView> bookshelf(CurrentUser user, long page, long size) {
@@ -153,6 +154,20 @@ public class ContentApplicationService {
     }
 
     @Transactional
+    public ReadingProgressView updateReadingProgress(CurrentUser user, ReadingProgressUpdateRequest request) {
+        requireLogin(user);
+        if (request == null || request.chapterId() == null) {
+            throw new BizException("INVALID_PROGRESS", "Chapter is required");
+        }
+        Chapter chapter = requireChapter(request.chapterId());
+        if (!canReadChapter(user, chapter)) {
+            throw new BizException("CHAPTER_LOCKED", "Chapter requires purchase, VIP, or points redemption");
+        }
+        ReadingProgress progress = recordProgress(user, chapter, request.progressPercent());
+        return progressView(progress);
+    }
+
+    @Transactional
     public WorkCard adminCreateWork(AdminWorkRequest request) {
         LocalDateTime now = LocalDateTime.now();
         Work work = new Work();
@@ -201,6 +216,12 @@ public class ContentApplicationService {
                 .eq(ChapterEntitlement::getChapterId, chapterId)) > 0;
     }
 
+    private boolean canReadChapter(CurrentUser user, Chapter chapter) {
+        return Boolean.TRUE.equals(chapter.getFreeFlag())
+                || (user != null && user.isVip())
+                || ownsChapter(user == null ? null : user.id(), chapter.getId());
+    }
+
     private void requireLogin(CurrentUser user) {
         if (user == null || user.id() == null || user.id() <= 0) {
             throw new BizException("UNAUTHORIZED", "Login required");
@@ -220,15 +241,27 @@ public class ContentApplicationService {
         return new ChapterView(chapter.getId(), chapter.getChapterNo(), chapter.getTitle(), free, chapter.getPricePoints(), unlocked, accessLabel);
     }
 
-    private void recordProgress(CurrentUser user, Chapter chapter) {
+    private int sanitizeProgressPercent(Integer progressPercent) {
+        if (progressPercent == null) {
+            return 0;
+        }
+        return Math.max(0, Math.min(100, progressPercent));
+    }
+
+    private int nullToZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private ReadingProgress recordProgress(CurrentUser user, Chapter chapter, Integer progressPercent) {
         if (user == null || user.id() == null || user.id() <= 0) {
-            return;
+            return null;
         }
         LocalDateTime now = LocalDateTime.now();
         ReadingProgress progress = progressMapper.selectOne(new LambdaQueryWrapper<ReadingProgress>()
                 .eq(ReadingProgress::getUserId, user.id())
                 .eq(ReadingProgress::getWorkId, chapter.getWorkId())
                 .last("limit 1"));
+        int nextProgressPercent = sanitizeProgressPercent(progressPercent);
         if (progress == null) {
             progress = new ReadingProgress();
             progress.setUserId(user.id());
@@ -236,12 +269,17 @@ public class ContentApplicationService {
             progress.setChapterId(chapter.getId());
             progress.setChapterNo(chapter.getChapterNo());
             progress.setChapterTitle(chapter.getTitle());
+            progress.setProgressPercent(nextProgressPercent);
             progress.setUpdatedAt(now);
             progressMapper.insert(progress);
         } else {
+            boolean chapterChanged = !chapter.getId().equals(progress.getChapterId());
             progress.setChapterId(chapter.getId());
             progress.setChapterNo(chapter.getChapterNo());
             progress.setChapterTitle(chapter.getTitle());
+            progress.setProgressPercent(progressPercent == null
+                    ? chapterChanged ? 0 : nullToZero(progress.getProgressPercent())
+                    : nextProgressPercent);
             progress.setUpdatedAt(now);
             progressMapper.updateById(progress);
         }
@@ -250,6 +288,7 @@ public class ContentApplicationService {
                 .eq(UserBookshelf::getUserId, user.id())
                 .eq(UserBookshelf::getWorkId, chapter.getWorkId())
                 .set(UserBookshelf::getUpdatedAt, now));
+        return progress;
     }
 
     private BookshelfItemView bookshelfView(UserBookshelf item) {
@@ -273,6 +312,7 @@ public class ContentApplicationService {
                 progress == null ? null : progress.getChapterId(),
                 progress == null ? null : progress.getChapterNo(),
                 progress == null ? null : progress.getChapterTitle(),
+                progress == null ? 0 : nullToZero(progress.getProgressPercent()),
                 item.getCreatedAt(),
                 item.getUpdatedAt()
         );
@@ -294,6 +334,7 @@ public class ContentApplicationService {
                 progress.getChapterId(),
                 progress.getChapterNo(),
                 progress.getChapterTitle(),
+                nullToZero(progress.getProgressPercent()),
                 progress.getUpdatedAt()
         );
     }
