@@ -4,8 +4,10 @@ import com.gray.anime.common.api.ApiResponse;
 import com.gray.anime.common.api.PageResult;
 import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.user.application.UserApplicationService;
+import com.gray.anime.user.application.AuthSessionResult;
 import com.gray.anime.user.interfaces.dto.*;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,19 +15,33 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1")
 public class UserController {
     private final UserApplicationService service;
+    private final RefreshCookieService refreshCookies;
 
-    public UserController(UserApplicationService service) {
+    public UserController(UserApplicationService service, RefreshCookieService refreshCookies) {
         this.service = service;
+        this.refreshCookies = refreshCookies;
     }
 
     @PostMapping("/auth/register")
-    ApiResponse<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ApiResponse.ok(service.register(request));
+    ApiResponse<TokenResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletResponse response) {
+        return completeAuth(service.register(request), response);
     }
 
     @PostMapping("/auth/login")
-    ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.ok(service.login(request));
+    ApiResponse<TokenResponse> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
+        return completeAuth(service.login(request), response);
+    }
+
+    @PostMapping("/auth/refresh")
+    ApiResponse<TokenResponse> refresh(HttpServletRequest request, HttpServletResponse response) {
+        return completeAuth(service.refreshSession(refreshCookies.read(request)), response);
+    }
+
+    @PostMapping("/auth/logout")
+    ApiResponse<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        service.logout(refreshCookies.read(request));
+        refreshCookies.clear(response);
+        return ApiResponse.ok(null);
     }
 
     @PostMapping("/auth/password-reset/request")
@@ -34,8 +50,12 @@ public class UserController {
     }
 
     @PostMapping("/auth/password-reset/confirm")
-    ApiResponse<Void> passwordResetConfirm(@Valid @RequestBody PasswordResetConfirm request) {
+    ApiResponse<Void> passwordResetConfirm(
+            @Valid @RequestBody PasswordResetConfirm request,
+            HttpServletResponse response
+    ) {
         service.confirmPasswordReset(request);
+        refreshCookies.clear(response);
         return ApiResponse.ok(null);
     }
 
@@ -61,5 +81,10 @@ public class UserController {
             HttpServletRequest request
     ) {
         return ApiResponse.ok(service.pointsLedger(CurrentUser.from(request), page, size));
+    }
+
+    private ApiResponse<TokenResponse> completeAuth(AuthSessionResult result, HttpServletResponse response) {
+        refreshCookies.write(response, result.refreshToken());
+        return ApiResponse.ok(result.tokenResponse());
     }
 }

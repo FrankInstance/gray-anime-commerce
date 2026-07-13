@@ -17,6 +17,10 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:gray}
     password: ${RABBITMQ_PASSWORD:gray_pass}
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
   cloud:
     nacos:
       discovery:
@@ -28,7 +32,16 @@ spring:
 
 security:
   jwt:
-    secret: ${JWT_SECRET:dev-secret-dev-secret-dev-secret-123456}
+    issuer: ${JWT_ISSUER:gray-auth}
+    audience: ${JWT_AUDIENCE:gray-api}
+    key-id: ${JWT_KEY_ID:gray-access-2026-01}
+    public-key-location: ${JWT_PUBLIC_KEY_LOCATION:file:./deploy/keys/access-token-public.pem}
+    private-key-location: ${JWT_PRIVATE_KEY_LOCATION:file:./deploy/keys/access-token-private.pem}
+  session:
+    access-token-ttl-seconds: ${ACCESS_TOKEN_TTL_SECONDS:900}
+    idle-ttl-seconds: ${AUTH_SESSION_IDLE_TTL_SECONDS:259200}
+    refresh-cookie-name: ${AUTH_REFRESH_COOKIE_NAME:gray_refresh}
+    cookie-secure: ${AUTH_COOKIE_SECURE:false}
 
 mybatis-plus:
   configuration:

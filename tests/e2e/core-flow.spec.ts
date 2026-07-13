@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 
 const API_BASE_URL = process.env.CORE_API_BASE_URL ?? 'http://127.0.0.1:8080';
 const AUTH_STORAGE_KEY = 'gray-shelf-auth-v1';
@@ -42,19 +42,6 @@ async function register(request: APIRequestContext, prefix: string) {
   return { account, auth: envelope.data };
 }
 
-async function useStoredAuth(page: Page, auth: AuthResponse) {
-  await page.addInitScript(({ key, value }) => {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  }, {
-    key: AUTH_STORAGE_KEY,
-    value: {
-      accessToken: auth.accessToken,
-      profile: auth.profile,
-      expiresAt: Date.now() + auth.expiresIn * 1000
-    }
-  });
-}
-
 test('registration persists the signed-in account after a page reload', async ({ page }) => {
   const account = uniqueAccount('browser-auth');
   await page.goto('/');
@@ -73,13 +60,44 @@ test('registration persists the signed-in account after a page reload', async ({
   await page.reload();
   await expect(page.locator('.accountTrigger')).toContainText(account.username);
   const storedAuth = await page.evaluate((key) => window.localStorage.getItem(key), AUTH_STORAGE_KEY);
-  expect(storedAuth).toContain(account.email);
+  expect(storedAuth).toBeNull();
+  const refreshCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'gray_refresh');
+  expect(refreshCookie?.httpOnly).toBe(true);
+  expect(refreshCookie?.sameSite).toBe('Lax');
+});
+
+test('forgot password resets credentials and returns to login', async ({ page }) => {
+  const { account } = await register(page.request, 'browser-reset');
+  const logoutResponse = await page.request.post(`${API_BASE_URL}/api/v1/auth/logout`);
+  expect(logoutResponse.ok()).toBeTruthy();
+  await page.goto('/');
+
+  await page.locator('.accountTrigger').click();
+  await page.locator('.accountDropdown').getByRole('menuitem', { name: '登录' }).click();
+  let dialog = page.getByRole('dialog', { name: '登录' });
+  await dialog.getByRole('button', { name: '忘记密码' }).click();
+
+  dialog = page.getByRole('dialog', { name: '找回密码' });
+  await dialog.getByLabel('邮箱').fill(account.email);
+  await dialog.getByRole('button', { name: '发送验证码' }).click();
+
+  dialog = page.getByRole('dialog', { name: '重置密码' });
+  await expect(dialog.getByLabel('验证码')).not.toHaveValue('');
+  const newPassword = 'GrayReset456!';
+  await dialog.getByLabel('新密码').fill(newPassword);
+  await dialog.getByRole('button', { name: '重置密码' }).click();
+
+  dialog = page.getByRole('dialog', { name: '登录' });
+  await dialog.getByLabel('密码').fill(newPassword);
+  await dialog.getByRole('button', { name: '登录', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.accountTrigger')).toContainText(account.username);
 });
 
 test('cart selection controls checkout and mock payment completes the order', async ({ page, request }) => {
-  const { auth } = await register(request, 'browser-cart');
-  await useStoredAuth(page, auth);
+  const { auth } = await register(page.request, 'browser-cart');
   await page.goto('/');
+  await expect(page.locator('.accountTrigger')).toContainText(auth.profile.username);
 
   await page.getByRole('navigation').getByRole('button', { name: '会员购' }).click();
   const productCard = page.locator('.productCard').filter({ hasText: '《星轨书店的魔女》实体书限定版' });
@@ -116,8 +134,7 @@ test('cart selection controls checkout and mock payment completes the order', as
 });
 
 test('reader scroll position is saved and restored after reload', async ({ page, request }) => {
-  const { auth } = await register(request, 'browser-reader');
-  await useStoredAuth(page, auth);
+  const { auth } = await register(page.request, 'browser-reader');
   await page.goto('/works/1/chapters/1/read');
 
   const article = page.locator('.readerArticle');

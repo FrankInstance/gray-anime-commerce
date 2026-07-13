@@ -22,7 +22,7 @@ import {
   UserRound,
   X
 } from 'lucide-react';
-import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type ApiResponse<T> = { code: string; message: string; data: T; traceId: string };
 type PageResult<T> = { items: T[]; page: number; size: number; total: number };
@@ -71,9 +71,9 @@ type CartLine = {
   quantity: number;
 };
 type Profile = { id: number; email: string; username: string; roles: string[]; status?: string; points: number; vipUntil: string | null };
-type AuthMode = 'login' | 'register';
+type AuthMode = 'login' | 'register' | 'resetRequest' | 'resetConfirm';
 type AuthResponse = { accessToken: string; expiresIn: number; profile: Profile; roles: string[] };
-type StoredAuth = { accessToken: string; profile: Profile; expiresAt: number };
+type PasswordResetResponse = { channel: string; devToken: string; expiresAt: string };
 type OrderItemView = { itemType: string; refId: number | null; skuId: number | null; title: string; quantity: number; unitPriceCents: number; unitPoints: number; reservationNo: string | null };
 type OrderView = { id: number; orderNo: string; orderType: string; totalCents: number; totalPoints: number; status: string; paymentNo: string | null; paymentStatus: string | null; paymentChannel: string | null; paidAt: string | null; createdAt: string; items: OrderItemView[] };
 type PointsLedgerView = { id: number; amount: number; reason: string; bizKey: string; createdAt: string };
@@ -116,6 +116,7 @@ type AppRoute =
 
 const PAGE_SIZE = 10;
 const AUTH_STORAGE_KEY = 'gray-shelf-auth-v1';
+const SESSION_KEEPALIVE_INTERVAL_MS = 10 * 60 * 1000;
 const CART_STORAGE_KEY = 'gray-shelf-cart-v1';
 const READER_SETTINGS_STORAGE_KEY = 'gray-shelf-reader-settings-v1';
 const MAX_CART_QUANTITY = 99;
@@ -229,9 +230,20 @@ const fallbackReaderText = [
   '列车抵达终点时，天色还没有亮。魔女合上书箱，铃铛轻轻响了一声。她知道，只要还有人愿意继续读下去，故事就不会真正结束。'
 ].join('\n\n');
 
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string
+  ) {
+    super(message);
+  }
+}
+
 async function api<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(path, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -241,13 +253,15 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
   if (!response.ok) {
     const text = await response.text();
     let message = text || response.statusText;
+    let code = `HTTP_${response.status}`;
     try {
       const body = JSON.parse(text) as Partial<ApiResponse<unknown>>;
       message = body.message || message;
+      code = body.code || code;
     } catch {
       // Keep non-JSON errors readable in forms and notices.
     }
-    throw new Error(message);
+    throw new ApiRequestError(message, response.status, code);
   }
   const body = (await response.json()) as ApiResponse<T>;
   return body.data;
@@ -590,50 +604,18 @@ function clearStoredAuth() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
-function persistStoredAuth(accessToken: string, profile: Profile, expiresAt: number) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ accessToken, profile, expiresAt }));
+function isSessionRejected(error: unknown) {
+  return error instanceof ApiRequestError && (
+    error.status === 401 ||
+    ['SESSION_REQUIRED', 'SESSION_EXPIRED', 'USER_DISABLED'].includes(error.code)
+  );
 }
 
-function loadStoredAuth(): StoredAuth | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
-    if (
-      typeof parsed.accessToken !== 'string' ||
-      !parsed.accessToken ||
-      typeof parsed.expiresAt !== 'number' ||
-      !parsed.profile ||
-      typeof parsed.profile.id !== 'number'
-    ) {
-      clearStoredAuth();
-      return null;
-    }
-    if (parsed.expiresAt <= Date.now()) {
-      clearStoredAuth();
-      return null;
-    }
-    return parsed as StoredAuth;
-  } catch {
-    clearStoredAuth();
-    return null;
-  }
-}
-
-function persistAuthResponse(data: AuthResponse) {
-  const profile = profileWithRoles(data);
-  const expiresAt = Date.now() + Math.max(0, data.expiresIn) * 1000;
-  persistStoredAuth(data.accessToken, profile, expiresAt);
-  return profile;
-}
-
-function updateStoredProfile(profile: Profile) {
-  const stored = loadStoredAuth();
-  if (stored) {
-    persistStoredAuth(stored.accessToken, profile, stored.expiresAt);
-  }
+function authTitle(mode: AuthMode) {
+  if (mode === 'register') return '注册';
+  if (mode === 'resetRequest') return '找回密码';
+  if (mode === 'resetConfirm') return '重置密码';
+  return '登录';
 }
 
 function parseRoute(path = window.location.pathname): AppRoute {
@@ -697,8 +679,9 @@ export function App() {
   const [accountCancellingOrderNo, setAccountCancellingOrderNo] = useState('');
   const [bookshelfLoadingWorkId, setBookshelfLoadingWorkId] = useState<number | null>(null);
   const [accountOrderFilter, setAccountOrderFilter] = useState<AccountOrderFilter>('ALL');
-  const [token, setToken] = useState(() => loadStoredAuth()?.accessToken ?? '');
-  const [profile, setProfile] = useState<Profile | null>(() => loadStoredAuth()?.profile ?? null);
+  const [token, setToken] = useState('');
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [, setNotice] = useState('');
   const [cartItems, setCartItems] = useState<CartLine[]>(() => loadStoredCart(cartStorageKey(null)));
   const [selectedCartSkuIds, setSelectedCartSkuIds] = useState<Set<number>>(() => cartSkuIdSet(loadStoredCart(cartStorageKey(null))));
@@ -722,11 +705,14 @@ export function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [authResetToken, setAuthResetToken] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const accountCloseTimer = useRef<number | null>(null);
   const cartStorageKeyRef = useRef(cartStorageKey(null));
   const cartToastTimer = useRef<number | null>(null);
+  const refreshPromise = useRef<Promise<boolean> | null>(null);
 
   const isVip = useMemo(() => profile?.roles.includes('VIP') ?? false, [profile]);
   const activeMeta = sections.find((section) => section.key === activeSection) ?? sections[0];
@@ -743,11 +729,76 @@ export function App() {
   const selectedCartDiscountCents = Math.max(0, selectedCartOriginalTotalCents - selectedCartTotalCents);
   const bookshelfWorkIds = useMemo(() => new Set(accountBookshelf.map((item) => item.workId)), [accountBookshelf]);
 
+  const clearAuthState = useCallback(() => {
+    clearStoredAuth();
+    setToken('');
+    setProfile(null);
+  }, []);
+
+  const applyAuthResponse = useCallback((data: AuthResponse) => {
+    const nextProfile = profileWithRoles(data);
+    setToken(data.accessToken);
+    setProfile(nextProfile);
+    return nextProfile;
+  }, []);
+
+  const refreshSession = useCallback(() => {
+    if (refreshPromise.current) return refreshPromise.current;
+    const request = api<AuthResponse>('/api/v1/auth/refresh', { method: 'POST' })
+      .then((data) => {
+        applyAuthResponse(data);
+        return true;
+      })
+      .catch((error) => {
+        if (isSessionRejected(error)) {
+          clearAuthState();
+        }
+        return false;
+      })
+      .finally(() => {
+        refreshPromise.current = null;
+      });
+    refreshPromise.current = request;
+    return request;
+  }, [applyAuthResponse, clearAuthState]);
+
   useEffect(() => {
     const onPopState = () => setRoute(parseRoute());
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    clearStoredAuth();
+    void refreshSession().finally(() => {
+      if (active) setAuthReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [refreshSession]);
+
+  useEffect(() => {
+    if (!token || !authReady) return;
+
+    const keepAlive = () => {
+      void refreshSession();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') keepAlive();
+    };
+    const timer = window.setInterval(keepAlive, SESSION_KEEPALIVE_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', keepAlive);
+    window.addEventListener('online', keepAlive);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('focus', keepAlive);
+      window.removeEventListener('online', keepAlive);
+    };
+  }, [authReady, refreshSession, token]);
 
   useEffect(() => () => {
     if (accountCloseTimer.current) {
@@ -766,19 +817,16 @@ export function App() {
       .then((nextProfile) => {
         if (!active) return;
         setProfile(nextProfile);
-        updateStoredProfile(nextProfile);
       })
       .catch(() => {
         if (!active) return;
-        clearStoredAuth();
-        setToken('');
-        setProfile(null);
+        void refreshSession();
       });
 
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [refreshSession, token]);
 
   useEffect(() => {
     if (!token) {
@@ -910,7 +958,7 @@ export function App() {
 
   useEffect(() => {
     const isAccountRoute = route.kind === 'account' || route.kind === 'accountBookshelf' || route.kind === 'accountOrders';
-    if (!isAccountRoute) return;
+    if (!isAccountRoute || !authReady) return;
     setDetailWork(null);
     setDetailProduct(null);
     setReaderData(null);
@@ -924,7 +972,7 @@ export function App() {
       return;
     }
     void loadAccountData();
-  }, [route.kind, token, accountOrderFilter]);
+  }, [route.kind, token, accountOrderFilter, authReady]);
 
   function navigate(path: string) {
     window.history.pushState(null, '', path);
@@ -979,6 +1027,7 @@ export function App() {
   function openAuth(mode: AuthMode) {
     setAuthMode(mode);
     setAuthError('');
+    setAuthMessage('');
     setAuthOpen(true);
     setAccountOpen(false);
   }
@@ -987,6 +1036,7 @@ export function App() {
     if (!authLoading) {
       setAuthOpen(false);
       setAuthError('');
+      setAuthMessage('');
     }
   }
 
@@ -1030,7 +1080,6 @@ export function App() {
     if (!token) return;
     const nextProfile = await api<Profile>('/api/v1/users/me', {}, token);
     setProfile(nextProfile);
-    updateStoredProfile(nextProfile);
   }
 
   async function loadAccountData(showLoading = true, filter = accountOrderFilter) {
@@ -1091,7 +1140,31 @@ export function App() {
     event.preventDefault();
     setAuthLoading(true);
     setAuthError('');
+    setAuthMessage('');
     try {
+      if (authMode === 'resetRequest') {
+        const data = await api<PasswordResetResponse>('/api/v1/auth/password-reset/request', {
+          method: 'POST',
+          body: JSON.stringify({ email: authEmail.trim() })
+        });
+        setAuthResetToken(data.devToken === 'sent-if-user-exists' ? '' : data.devToken);
+        setAuthPassword('');
+        setAuthMode('resetConfirm');
+        setAuthMessage('验证码已发送，请设置新密码。');
+        return;
+      }
+      if (authMode === 'resetConfirm') {
+        await api('/api/v1/auth/password-reset/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ token: authResetToken.trim(), newPassword: authPassword })
+        });
+        clearAuthState();
+        setAuthMode('login');
+        setAuthPassword('');
+        setAuthResetToken('');
+        setAuthMessage('密码已重置，请重新登录。');
+        return;
+      }
       const isRegister = authMode === 'register';
       const data = await api<AuthResponse>(isRegister ? '/api/v1/auth/register' : '/api/v1/auth/login', {
         method: 'POST',
@@ -1101,9 +1174,7 @@ export function App() {
           ...(isRegister ? { username: authUsername.trim() } : {})
         })
       });
-      const nextProfile = persistAuthResponse(data);
-      setToken(data.accessToken);
-      setProfile(nextProfile);
+      applyAuthResponse(data);
       setAuthOpen(false);
       setAuthPassword('');
       setAuthError('');
@@ -1505,10 +1576,13 @@ export function App() {
     setSelectedCartSkuIds(new Set());
   }
 
-  function logout() {
-    clearStoredAuth();
-    setToken('');
-    setProfile(null);
+  async function logout() {
+    try {
+      await api('/api/v1/auth/logout', { method: 'POST' });
+    } catch {
+      // Local logout still completes when the server is temporarily unavailable.
+    }
+    clearAuthState();
     setPendingPayment(null);
     setAccountBookshelf([]);
     setAccountReadingProgress([]);
@@ -1756,23 +1830,25 @@ export function App() {
       {authOpen && (
         <div className="modalLayer" onMouseDown={(event) => event.currentTarget === event.target && closeAuth()}>
           <section className="authDialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-            <button className="modalClose" type="button" aria-label="关闭登录注册窗口" onClick={closeAuth}>
+            <button className="modalClose" type="button" aria-label="关闭账号窗口" onClick={closeAuth}>
               <X size={18} />
             </button>
-            <h2 id="auth-title">{authMode === 'login' ? '登录' : '注册'}</h2>
+            <h2 id="auth-title">{authTitle(authMode)}</h2>
             <form className="authForm" onSubmit={submitAuth}>
-              <label className="authField">
-                <span>邮箱</span>
-                <input
-                  autoFocus
-                  autoComplete="email"
-                  required
-                  type="email"
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  placeholder="请输入邮箱"
-                />
-              </label>
+              {authMode !== 'resetConfirm' && (
+                <label className="authField">
+                  <span>邮箱</span>
+                  <input
+                    autoFocus
+                    autoComplete="email"
+                    required
+                    type="email"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="请输入邮箱"
+                  />
+                </label>
+              )}
               {authMode === 'register' && (
                 <label className="authField">
                   <span>昵称</span>
@@ -1787,31 +1863,66 @@ export function App() {
                   />
                 </label>
               )}
-              <label className="authField">
-                <span>密码</span>
-                <input
-                  autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                  required
-                  minLength={6}
-                  maxLength={64}
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="请输入密码"
-                />
-              </label>
+              {authMode === 'resetConfirm' && (
+                <label className="authField">
+                  <span>验证码</span>
+                  <input
+                    autoFocus
+                    autoComplete="one-time-code"
+                    required
+                    value={authResetToken}
+                    onChange={(event) => setAuthResetToken(event.target.value)}
+                    placeholder="请输入验证码"
+                  />
+                </label>
+              )}
+              {authMode !== 'resetRequest' && (
+                <label className="authField">
+                  <span>{authMode === 'resetConfirm' ? '新密码' : '密码'}</span>
+                  <input
+                    autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                    required
+                    minLength={6}
+                    maxLength={64}
+                    type="password"
+                    value={authPassword}
+                    onChange={(event) => setAuthPassword(event.target.value)}
+                    placeholder={authMode === 'resetConfirm' ? '请输入新密码' : '请输入密码'}
+                  />
+                </label>
+              )}
+              {authMode === 'login' && (
+                <button className="authTextAction" type="button" onClick={() => openAuth('resetRequest')}>
+                  忘记密码
+                </button>
+              )}
+              {authMessage && <div className="authMessage" role="status">{authMessage}</div>}
               {authError && <div className="authError" role="alert">{authError}</div>}
               <div className="authActions">
                 <button
                   className="secondary"
                   type="button"
-                  onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}
+                  onClick={() => {
+                    setAuthMode(authMode === 'login' ? 'register' : 'login');
+                    setAuthError('');
+                    setAuthMessage('');
+                  }}
                 >
                   {authMode === 'login' ? '注册' : '返回登录'}
                 </button>
                 <button type="submit" disabled={authLoading}>
-                  {authMode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
-                  {authLoading ? '处理中...' : authMode === 'login' ? '登录' : '注册'}
+                  {authMode === 'login' && <LogIn size={17} />}
+                  {authMode === 'register' && <UserPlus size={17} />}
+                  {(authMode === 'resetRequest' || authMode === 'resetConfirm') && <Lock size={17} />}
+                  {authLoading
+                    ? '处理中...'
+                    : authMode === 'login'
+                      ? '登录'
+                      : authMode === 'register'
+                        ? '注册'
+                        : authMode === 'resetRequest'
+                          ? '发送验证码'
+                          : '重置密码'}
                 </button>
               </div>
             </form>

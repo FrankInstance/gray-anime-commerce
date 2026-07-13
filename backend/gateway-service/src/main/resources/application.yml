@@ -17,13 +17,14 @@ spring:
         webflux:
           discovery:
             locator:
-              enabled: true
+              enabled: false
           globalcors:
             cors-configurations:
               '[/**]':
-                allowed-origin-patterns: "*"
-                allowed-methods: "*"
-                allowed-headers: "*"
+                allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+                allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+                allowed-headers: Authorization,Content-Type,X-Trace-Id
+                exposed-headers: X-Trace-Id
                 allow-credentials: true
           routes:
             - id: user-service
@@ -45,7 +46,7 @@ spring:
             - id: inventory-service
               uri: lb://inventory-service
               predicates:
-                - Path=/api/v1/internal/inventory/**,/api/v1/admin/inventory/**
+                - Path=/api/v1/admin/inventory/**
             - id: payment-service
               uri: lb://payment-service
               predicates:
@@ -57,10 +58,13 @@ spring:
 
 security:
   jwt:
-    secret: ${JWT_SECRET:dev-secret-dev-secret-dev-secret-123456}
+    issuer: ${JWT_ISSUER:gray-auth}
+    audience: ${JWT_AUDIENCE:gray-api}
+    key-id: ${JWT_KEY_ID:gray-access-2026-01}
+    public-key-location: ${JWT_PUBLIC_KEY_LOCATION:file:./deploy/keys/access-token-public.pem}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,gateway
+        include: health,info

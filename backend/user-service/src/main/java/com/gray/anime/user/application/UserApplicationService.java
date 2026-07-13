@@ -1,61 +1,78 @@
 package com.gray.anime.user.application;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gray.anime.common.api.PageResult;
 import com.gray.anime.common.exception.BizException;
 import com.gray.anime.common.security.CurrentUser;
-import com.gray.anime.common.security.JwtSupport;
+import com.gray.anime.common.security.AccessTokenIssuer;
 import com.gray.anime.user.domain.AppUser;
+import com.gray.anime.user.domain.AuthSession;
 import com.gray.anime.user.domain.NotificationMessage;
 import com.gray.anime.user.domain.PasswordResetToken;
 import com.gray.anime.user.domain.PointsLedger;
 import com.gray.anime.user.infrastructure.mapper.AppUserMapper;
+import com.gray.anime.user.infrastructure.mapper.AuthSessionMapper;
 import com.gray.anime.user.infrastructure.mapper.NotificationMessageMapper;
 import com.gray.anime.user.infrastructure.mapper.PasswordResetTokenMapper;
 import com.gray.anime.user.infrastructure.mapper.PointsLedgerMapper;
 import com.gray.anime.user.interfaces.dto.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class UserApplicationService {
-    private static final long ACCESS_TOKEN_TTL_SECONDS = 7200;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final AppUserMapper userMapper;
+    private final AuthSessionMapper authSessionMapper;
     private final PointsLedgerMapper pointsLedgerMapper;
     private final PasswordResetTokenMapper resetTokenMapper;
     private final NotificationMessageMapper notificationMapper;
     private final PasswordEncoder passwordEncoder;
-    private final JwtSupport jwtSupport;
+    private final AccessTokenIssuer accessTokenIssuer;
+    private final long accessTokenTtlSeconds;
+    private final long sessionIdleTtlSeconds;
 
     public UserApplicationService(
             AppUserMapper userMapper,
+            AuthSessionMapper authSessionMapper,
             PointsLedgerMapper pointsLedgerMapper,
             PasswordResetTokenMapper resetTokenMapper,
             NotificationMessageMapper notificationMapper,
             PasswordEncoder passwordEncoder,
-            JwtSupport jwtSupport
+            AccessTokenIssuer accessTokenIssuer,
+            @Value("${security.session.access-token-ttl-seconds:900}") long accessTokenTtlSeconds,
+            @Value("${security.session.idle-ttl-seconds:259200}") long sessionIdleTtlSeconds
     ) {
         this.userMapper = userMapper;
+        this.authSessionMapper = authSessionMapper;
         this.pointsLedgerMapper = pointsLedgerMapper;
         this.resetTokenMapper = resetTokenMapper;
         this.notificationMapper = notificationMapper;
         this.passwordEncoder = passwordEncoder;
-        this.jwtSupport = jwtSupport;
+        this.accessTokenIssuer = accessTokenIssuer;
+        this.accessTokenTtlSeconds = accessTokenTtlSeconds;
+        this.sessionIdleTtlSeconds = sessionIdleTtlSeconds;
     }
 
     @Transactional
-    public TokenResponse register(RegisterRequest request) {
+    public AuthSessionResult register(RegisterRequest request) {
         String email = normalizeEmail(request.email());
         AppUser existed = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, email));
         if (existed != null) {
@@ -72,10 +89,11 @@ public class UserApplicationService {
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
         userMapper.insert(user);
-        return tokenFor(user);
+        return createSession(user);
     }
 
-    public TokenResponse login(LoginRequest request) {
+    @Transactional
+    public AuthSessionResult login(LoginRequest request) {
         AppUser user = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, normalizeEmail(request.email())));
         if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BizException("BAD_CREDENTIALS", "Email or password is incorrect");
@@ -83,7 +101,47 @@ public class UserApplicationService {
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new BizException("USER_DISABLED", "User is not active");
         }
-        return tokenFor(user);
+        return createSession(user);
+    }
+
+    @Transactional
+    public AuthSessionResult refreshSession(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new BizException("SESSION_REQUIRED", "Login required");
+        }
+        String currentHash = hashToken(refreshToken);
+        AuthSession session = authSessionMapper.selectOne(new LambdaQueryWrapper<AuthSession>()
+                .eq(AuthSession::getTokenHash, currentHash)
+                .last("limit 1"));
+        LocalDateTime now = LocalDateTime.now();
+        if (session == null || Boolean.TRUE.equals(session.getRevoked()) || !session.getExpiresAt().isAfter(now)) {
+            throw new BizException("SESSION_EXPIRED", "Login required");
+        }
+        AppUser user = requireUser(session.getUserId());
+        if (!"ACTIVE".equals(user.getStatus())) {
+            revokeSession(currentHash);
+            throw new BizException("USER_DISABLED", "User is not active");
+        }
+
+        String nextRefreshToken = newRefreshToken();
+        int updated = authSessionMapper.update(null, new LambdaUpdateWrapper<AuthSession>()
+                .eq(AuthSession::getId, session.getId())
+                .eq(AuthSession::getTokenHash, currentHash)
+                .eq(AuthSession::getRevoked, false)
+                .set(AuthSession::getTokenHash, hashToken(nextRefreshToken))
+                .set(AuthSession::getExpiresAt, now.plusSeconds(sessionIdleTtlSeconds))
+                .set(AuthSession::getUpdatedAt, now));
+        if (updated != 1) {
+            throw new BizException("SESSION_EXPIRED", "Login required");
+        }
+        return new AuthSessionResult(tokenFor(user), nextRefreshToken);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            revokeSession(hashToken(refreshToken));
+        }
     }
 
     public UserProfile me(CurrentUser currentUser) {
@@ -187,6 +245,7 @@ public class UserApplicationService {
         userMapper.updateById(user);
         reset.setUsed(true);
         resetTokenMapper.updateById(reset);
+        revokeUserSessions(user.getId());
     }
 
     public PageResult<UserProfile> adminUsers(long page, long size, String keyword) {
@@ -203,6 +262,9 @@ public class UserApplicationService {
         AppUser user = requireUser(id);
         if (request.status() != null && Set.of("ACTIVE", "DISABLED").contains(request.status())) {
             user.setStatus(request.status());
+            if ("DISABLED".equals(request.status())) {
+                revokeUserSessions(user.getId());
+            }
         }
         if (request.roles() != null && !request.roles().isBlank()) {
             user.setRoles(request.roles().toUpperCase());
@@ -214,8 +276,52 @@ public class UserApplicationService {
 
     private TokenResponse tokenFor(AppUser user) {
         Set<String> roles = roles(user);
-        String token = jwtSupport.issue(user.getId(), roles, ACCESS_TOKEN_TTL_SECONDS);
-        return new TokenResponse(token, ACCESS_TOKEN_TTL_SECONDS, profile(user), roles);
+        String token = accessTokenIssuer.issue(user.getId(), roles, accessTokenTtlSeconds);
+        return new TokenResponse(token, accessTokenTtlSeconds, profile(user), roles);
+    }
+
+    private AuthSessionResult createSession(AppUser user) {
+        String refreshToken = newRefreshToken();
+        LocalDateTime now = LocalDateTime.now();
+        AuthSession session = new AuthSession();
+        session.setUserId(user.getId());
+        session.setTokenHash(hashToken(refreshToken));
+        session.setExpiresAt(now.plusSeconds(sessionIdleTtlSeconds));
+        session.setRevoked(false);
+        session.setCreatedAt(now);
+        session.setUpdatedAt(now);
+        authSessionMapper.insert(session);
+        return new AuthSessionResult(tokenFor(user), refreshToken);
+    }
+
+    private void revokeSession(String tokenHash) {
+        authSessionMapper.update(null, new LambdaUpdateWrapper<AuthSession>()
+                .eq(AuthSession::getTokenHash, tokenHash)
+                .set(AuthSession::getRevoked, true)
+                .set(AuthSession::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    private void revokeUserSessions(Long userId) {
+        authSessionMapper.update(null, new LambdaUpdateWrapper<AuthSession>()
+                .eq(AuthSession::getUserId, userId)
+                .eq(AuthSession::getRevoked, false)
+                .set(AuthSession::getRevoked, true)
+                .set(AuthSession::getUpdatedAt, LocalDateTime.now()));
+    }
+
+    private String newRefreshToken() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String hashToken(String token) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
     }
 
     private UserProfile profile(AppUser user) {

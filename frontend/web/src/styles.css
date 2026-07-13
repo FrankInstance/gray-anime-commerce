@@ -775,6 +775,31 @@ button.secondary,
   line-height: 1.5;
 }
 
+.authMessage {
+  padding: 10px 12px;
+  border: 1px solid rgba(101, 245, 255, 0.45);
+  border-radius: 6px;
+  background: rgba(101, 245, 255, 0.1);
+  color: var(--ink);
+}
+
+.authTextAction {
+  justify-self: end;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  color: var(--cyan);
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
+}
+
+.authTextAction:hover:not(:disabled) {
+  color: #fff;
+  transform: none;
+  text-shadow: 0 0 12px rgba(101, 245, 255, 0.58);
+}
+
 @media (max-width: 900px) {
   .topbar {
     grid-template-columns: 1fr auto;
