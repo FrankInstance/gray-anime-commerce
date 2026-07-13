@@ -24,3 +24,6 @@ uploads/
 
 .env
 .env.local
+
+# Generated local authentication keys. Production keys must come from secret storage.
+deploy/keys/*.pem

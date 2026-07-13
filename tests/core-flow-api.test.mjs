@@ -12,17 +12,24 @@ class ApiError extends Error {
   }
 }
 
-async function api(path, { method = 'GET', token, body } = {}) {
+async function requestApi(path, { method = 'GET', token, cookie, body, headers: extraHeaders = {} } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
+      ...extraHeaders,
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(cookie ? { Cookie: cookie } : {})
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   });
   const text = await response.text();
   const payload = text ? JSON.parse(text) : null;
+  return { response, payload };
+}
+
+async function api(path, options = {}) {
+  const { response, payload } = await requestApi(path, options);
   if (!response.ok) {
     throw new ApiError(response.status, payload);
   }
@@ -37,6 +44,10 @@ function uniqueAccount(prefix) {
     username: `${prefix}${suffix.replace(/\D/g, '').slice(-8)}`.slice(0, 30),
     password: 'GrayTest123!'
   };
+}
+
+function decodeJwtPart(part) {
+  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 }
 
 async function register(prefix) {
@@ -79,6 +90,107 @@ test('a registered user can log in again and load their profile', async () => {
   assert.equal(profile.id, registered.profile.id);
   assert.equal(profile.email, account.email);
   assert.deepEqual(profile.roles, ['USER']);
+});
+
+test('access tokens use RS256 claims and identity headers cannot impersonate a user', async () => {
+  const { token } = await register('token-security');
+  const parts = token.split('.');
+  assert.equal(parts.length, 3);
+  const header = decodeJwtPart(parts[0]);
+  const claims = decodeJwtPart(parts[1]);
+
+  assert.equal(header.alg, 'RS256');
+  assert.equal(header.kid, 'gray-access-2026-01');
+  assert.equal(claims.iss, 'gray-auth');
+  assert.ok(claims.aud === 'gray-api' || (Array.isArray(claims.aud) && claims.aud.includes('gray-api')));
+  assert.match(claims.jti, /^[0-9a-f-]{36}$/i);
+  assert.ok(claims.iat <= claims.nbf && claims.nbf < claims.exp);
+
+  const spoofed = await requestApi('/api/v1/users/me', {
+    headers: {
+      'X-User-Id': '1',
+      'X-User-Roles': 'SUPER_ADMIN'
+    }
+  });
+  assert.equal(spoofed.response.status, 401);
+  assert.equal(spoofed.payload.code, 'UNAUTHORIZED');
+
+  const internal = await requestApi('/api/v1/internal/inventory/skus/1');
+  assert.equal(internal.response.status, 404);
+});
+
+test('refresh sessions rotate, survive reloads, and logout revokes them', async () => {
+  const account = uniqueAccount('session');
+  const registered = await requestApi('/api/v1/auth/register', {
+    method: 'POST',
+    body: account
+  });
+  assert.equal(registered.response.status, 200);
+  const initialSetCookie = registered.response.headers.get('set-cookie');
+  assert.match(initialSetCookie, /^gray_refresh=/);
+  assert.match(initialSetCookie, /HttpOnly/i);
+  assert.match(initialSetCookie, /Max-Age=259200/i);
+  assert.match(initialSetCookie, /SameSite=Lax/i);
+  const initialCookie = initialSetCookie.split(';', 1)[0];
+
+  const refreshed = await requestApi('/api/v1/auth/refresh', {
+    method: 'POST',
+    cookie: initialCookie
+  });
+  assert.equal(refreshed.response.status, 200);
+  assert.ok(refreshed.payload.data.accessToken);
+  assert.equal(refreshed.payload.data.expiresIn, 900);
+  const rotatedCookie = refreshed.response.headers.get('set-cookie').split(';', 1)[0];
+  assert.notEqual(rotatedCookie, initialCookie);
+
+  await expectApiError(
+    () => api('/api/v1/auth/refresh', { method: 'POST', cookie: initialCookie }),
+    'SESSION_EXPIRED'
+  );
+
+  await api('/api/v1/auth/logout', { method: 'POST', cookie: rotatedCookie });
+  await expectApiError(
+    () => api('/api/v1/auth/refresh', { method: 'POST', cookie: rotatedCookie }),
+    'SESSION_EXPIRED'
+  );
+});
+
+test('password reset revokes existing sessions and accepts only the new password', async () => {
+  const account = uniqueAccount('password-reset');
+  const registered = await requestApi('/api/v1/auth/register', {
+    method: 'POST',
+    body: account
+  });
+  const sessionCookie = registered.response.headers.get('set-cookie').split(';', 1)[0];
+
+  const reset = await api('/api/v1/auth/password-reset/request', {
+    method: 'POST',
+    body: { email: account.email }
+  });
+  assert.match(reset.devToken, /^\d{6}$/);
+
+  const newPassword = 'GrayReset456!';
+  await api('/api/v1/auth/password-reset/confirm', {
+    method: 'POST',
+    body: { token: reset.devToken, newPassword }
+  });
+
+  await expectApiError(
+    () => api('/api/v1/auth/refresh', { method: 'POST', cookie: sessionCookie }),
+    'SESSION_EXPIRED'
+  );
+  await expectApiError(
+    () => api('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email: account.email, password: account.password }
+    }),
+    'BAD_CREDENTIALS'
+  );
+  const loggedIn = await api('/api/v1/auth/login', {
+    method: 'POST',
+    body: { email: account.email, password: newPassword }
+  });
+  assert.equal(loggedIn.profile.email, account.email);
 });
 
 test('reading progress restores the exact position and Chinese text stays UTF-8', async () => {

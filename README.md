@@ -35,6 +35,7 @@ deploy/
 ```powershell
 npm install
 npm run build
+npm run setup:auth-keys
 mvn -q -DskipTests package
 docker compose up -d
 ```
@@ -55,11 +56,12 @@ The project intentionally uses demo/open-content ingestion and does not implemen
 先启动并等待 Docker Compose 服务健康：
 
 ```powershell
+npm run setup:auth-keys
 docker compose up -d
 npm run test:core
 ```
 
-`test:core` 会依次运行订单超时策略测试、真实网关 API 流程和 Chrome 页面流程。也可以单独运行：
+`test:core` 会依次运行令牌安全、登录会话与订单超时策略测试、真实网关 API 流程和 Chrome 页面流程。也可以单独运行：
 
 ```powershell
 npm run test:core:backend
@@ -78,6 +80,14 @@ npm run test:core:web
 - 在 GitHub Actions 页面手动触发。
 
 CI 使用 Java 21、Node.js 20、Chromium 和 Docker Compose。失败时会保留 7 天的容器日志、Playwright 截图和 trace。
+
+## Authentication
+
+- `user-service` 使用 RS256 私钥签发 15 分钟 Access Token。
+- 网关和业务服务只挂载公钥，并分别校验签名、签发方、受众、密钥编号和时间声明。
+- Refresh Token 存放在 HttpOnly Cookie 中，网页保持打开时在后台续期；关闭后连续 72 小时未使用则需要重新登录。
+- `npm run setup:auth-keys` 生成的 PEM 文件只用于本地开发且不会进入 Git。生产环境必须从密钥管理服务或部署平台 Secret 注入独立密钥。
+- HTTPS 部署必须设置 `AUTH_COOKIE_SECURE=true`，并将跨域来源限制为实际站点域名。
 
 首次工作流成功运行后，可在 GitHub 的 `master` Ruleset 中启用“必须通过状态检查”，选择 `Core flow regression`，并要求通过 Pull Request 合并。此后使用：
 

@@ -5,6 +5,27 @@ x-backend-healthcheck: &backend-healthcheck
   retries: 30
   start_period: 30s
 
+x-service-environment: &service-env
+  SERVER_PORT: 8080
+  MYSQL_HOST: mysql
+  MYSQL_DATABASE: gray_anime
+  MYSQL_USER: gray
+  MYSQL_PASSWORD: gray_pass
+  REDIS_HOST: redis
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_USER: gray
+  RABBITMQ_PASSWORD: gray_pass
+  NACOS_ADDR: nacos:8848
+  JWT_ISSUER: gray-auth
+  JWT_AUDIENCE: gray-api
+  JWT_KEY_ID: gray-access-2026-01
+  JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+  JAVA_OPTS: "-Xms128m -Xmx256m"
+
+x-public-key-secrets: &public-key-secrets
+  - source: gray_jwt_public_key
+    target: gray_jwt_public_key
+
 services:
   mysql:
     image: mysql:8.4
@@ -106,7 +127,12 @@ services:
       SERVER_PORT: 8080
       NACOS_ADDR: nacos:8848
       JAVA_OPTS: "-Xms128m -Xmx256m"
-      JWT_SECRET: dev-secret-dev-secret-dev-secret-123456
+      JWT_ISSUER: gray-auth
+      JWT_AUDIENCE: gray-api
+      JWT_KEY_ID: gray-access-2026-01
+      JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+      CORS_ALLOWED_ORIGIN_PATTERNS: http://localhost:*,http://127.0.0.1:*
+    secrets: *public-key-secrets
     ports:
       - "8080:8080"
     depends_on:
@@ -121,19 +147,17 @@ services:
       dockerfile: deploy/docker/backend.Dockerfile
       args:
         SERVICE_NAME: user-service
-    environment: &service-env
-      SERVER_PORT: 8080
-      MYSQL_HOST: mysql
-      MYSQL_DATABASE: gray_anime
-      MYSQL_USER: gray
-      MYSQL_PASSWORD: gray_pass
-      REDIS_HOST: redis
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: gray
-      RABBITMQ_PASSWORD: gray_pass
-      NACOS_ADDR: nacos:8848
-      JWT_SECRET: dev-secret-dev-secret-dev-secret-123456
-      JAVA_OPTS: "-Xms128m -Xmx256m"
+    environment:
+      <<: *service-env
+      JWT_PRIVATE_KEY_LOCATION: file:/run/secrets/gray_jwt_private_key
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      AUTH_SESSION_IDLE_TTL_SECONDS: ${AUTH_SESSION_IDLE_TTL_SECONDS:-259200}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    secrets:
+      - source: gray_jwt_public_key
+        target: gray_jwt_public_key
+      - source: gray_jwt_private_key
+        target: gray_jwt_private_key
     depends_on:
       mysql:
         condition: service_healthy
@@ -153,6 +177,7 @@ services:
       args:
         SERVICE_NAME: content-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -170,6 +195,7 @@ services:
       args:
         SERVICE_NAME: shop-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -187,6 +213,7 @@ services:
       args:
         SERVICE_NAME: inventory-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -204,6 +231,7 @@ services:
       args:
         SERVICE_NAME: order-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -223,6 +251,7 @@ services:
       args:
         SERVICE_NAME: payment-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -242,6 +271,7 @@ services:
       args:
         SERVICE_NAME: ingestion-service
     environment: *service-env
+    secrets: *public-key-secrets
     depends_on:
       mysql:
         condition: service_healthy
@@ -269,3 +299,9 @@ volumes:
   rabbitmq_data:
   nacos_data:
   minio_data:
+
+secrets:
+  gray_jwt_private_key:
+    file: ./deploy/keys/access-token-private.pem
+  gray_jwt_public_key:
+    file: ./deploy/keys/access-token-public.pem

@@ -2,8 +2,9 @@ package com.gray.anime.gateway.filter;
 
 import com.gray.anime.common.api.TraceIds;
 import com.gray.anime.common.exception.BizException;
+import com.gray.anime.common.security.AccessTokenVerifier;
+import com.gray.anime.common.security.ApiAccessPolicy;
 import com.gray.anime.common.security.JwtClaims;
-import com.gray.anime.common.security.JwtSupport;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -20,33 +21,38 @@ import java.util.Set;
 
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
-    private final JwtSupport jwtSupport;
+    private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String USER_ROLES_HEADER = "X-User-Roles";
+    private final AccessTokenVerifier accessTokenVerifier;
 
-    public GatewayAuthFilter(JwtSupport jwtSupport) {
-        this.jwtSupport = jwtSupport;
+    public GatewayAuthFilter(AccessTokenVerifier accessTokenVerifier) {
+        this.accessTokenVerifier = accessTokenVerifier;
     }
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String traceId = exchange.getRequest().getHeaders().getFirst(TraceIds.HEADER);
-        if (traceId == null || traceId.isBlank()) {
-            traceId = TraceIds.newTraceId();
-        }
+        String requestedTraceId = exchange.getRequest().getHeaders().getFirst(TraceIds.HEADER);
+        String traceId = requestedTraceId == null || requestedTraceId.isBlank()
+                ? TraceIds.newTraceId()
+                : requestedTraceId;
         String path = exchange.getRequest().getPath().pathWithinApplication().value();
         exchange.getResponse().getHeaders().set(TraceIds.HEADER, traceId);
 
         try {
             ServerHttpRequest.Builder request = exchange.getRequest().mutate()
-                    .header(TraceIds.HEADER, traceId);
+                    .headers(headers -> {
+                        headers.set(TraceIds.HEADER, traceId);
+                        headers.remove(USER_ID_HEADER);
+                        headers.remove(USER_ROLES_HEADER);
+                    });
             JwtClaims claims = resolveClaims(exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
-            if (claims != null) {
-                request.header("X-User-Id", claims.userId().toString());
-                request.header("X-User-Roles", String.join(",", claims.roles()));
+            if (ApiAccessPolicy.isInternal(path)) {
+                return reject(exchange, HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found", traceId);
             }
-            if (requiresLogin(path) && claims == null) {
+            if (ApiAccessPolicy.requiresLogin(path) && claims == null) {
                 return reject(exchange, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Login required", traceId);
             }
-            if (path.startsWith("/api/v1/admin/") && (claims == null || !isAdmin(claims.roles()))) {
+            if (ApiAccessPolicy.requiresAdmin(path) && (claims == null || !isAdmin(claims.roles()))) {
                 return reject(exchange, HttpStatus.FORBIDDEN, "FORBIDDEN", "Admin role required", traceId);
             }
             return chain.filter(exchange.mutate().request(request.build()).build());
@@ -59,19 +65,7 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             return null;
         }
-        return jwtSupport.verify(authorization.substring("Bearer ".length()));
-    }
-
-    private boolean requiresLogin(String path) {
-        return path.startsWith("/api/v1/users/")
-                || path.startsWith("/api/v1/checkins")
-                || path.startsWith("/api/v1/cart")
-                || path.startsWith("/api/v1/orders")
-                || path.startsWith("/api/v1/reading")
-                || path.startsWith("/api/v1/vip")
-                || path.contains("/bookshelf")
-                || path.contains("/purchase")
-                || path.startsWith("/api/v1/payments");
+        return accessTokenVerifier.verify(authorization.substring("Bearer ".length()));
     }
 
     private boolean isAdmin(Set<String> roles) {
