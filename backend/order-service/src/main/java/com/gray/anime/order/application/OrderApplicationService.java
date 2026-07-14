@@ -272,7 +272,7 @@ public class OrderApplicationService {
         payment.setOrderNo(orderNo);
         payment.setUserId(userId);
         payment.setAmountCents(amountCents);
-        payment.setChannel("MOCK");
+        payment.setChannel("UNASSIGNED");
         payment.setStatus("PENDING");
         payment.setCreatedAt(LocalDateTime.now());
         paymentMapper.insert(payment);

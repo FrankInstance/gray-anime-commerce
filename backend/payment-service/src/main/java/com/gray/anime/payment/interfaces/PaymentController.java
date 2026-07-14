@@ -1,13 +1,15 @@
 package com.gray.anime.payment.interfaces;
 
 import com.gray.anime.common.api.ApiResponse;
+import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.payment.application.PaymentApplicationService;
-import com.gray.anime.payment.interfaces.dto.PaymentView;
-import org.springframework.context.annotation.Profile;
+import com.gray.anime.payment.interfaces.dto.CheckoutSessionRequest;
+import com.gray.anime.payment.interfaces.dto.CheckoutSessionView;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@Profile({"local", "test"})
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
     private final PaymentApplicationService service;
@@ -16,8 +18,11 @@ public class PaymentController {
         this.service = service;
     }
 
-    @PostMapping("/{paymentNo}/mock-confirm")
-    ApiResponse<PaymentView> mockConfirm(@PathVariable String paymentNo) {
-        return ApiResponse.ok(service.mockConfirm(paymentNo));
+    @PostMapping("/checkout-session")
+    ApiResponse<CheckoutSessionView> createCheckoutSession(
+            @Valid @RequestBody CheckoutSessionRequest body,
+            HttpServletRequest request
+    ) {
+        return ApiResponse.ok(service.createCheckoutSession(CurrentUser.from(request), body));
     }
 }

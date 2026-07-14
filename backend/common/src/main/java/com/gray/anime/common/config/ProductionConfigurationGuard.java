@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Set;
 
 @AutoConfiguration
-@Profile("prod")
+@Profile({"prod", "demo"})
 public class ProductionConfigurationGuard {
     private static final Set<String> DATASOURCE_SERVICES = Set.of(
             "user-service",
@@ -64,12 +64,33 @@ public class ProductionConfigurationGuard {
         if ("gateway-service".equals(serviceName)) {
             validateCors(environment);
         }
+        if ("payment-service".equals(serviceName)) {
+            validatePaymentMode(environment);
+        }
     }
 
     private static void rejectMixedProfiles(Environment environment) {
         Set<String> activeProfiles = Set.copyOf(Arrays.asList(environment.getActiveProfiles()));
-        if (activeProfiles.contains("local") || activeProfiles.contains("test")) {
-            throw invalid("prod cannot be combined with local or test profiles");
+        boolean production = activeProfiles.contains("prod");
+        boolean demo = activeProfiles.contains("demo");
+        if (activeProfiles.contains("local") || activeProfiles.contains("test") || production && demo) {
+            throw invalid("prod and demo cannot be combined with local, test, or each other");
+        }
+    }
+
+    private static void validatePaymentMode(Environment environment) {
+        Set<String> activeProfiles = Set.copyOf(Arrays.asList(environment.getActiveProfiles()));
+        String provider = environment.getProperty("payment.provider", "disabled").trim().toLowerCase(Locale.ROOT);
+        if (activeProfiles.contains("prod") && "demo".equals(provider)) {
+            throw invalid("demo payment must not be enabled in the prod profile");
+        }
+        if (activeProfiles.contains("demo")) {
+            if (!"demo".equals(provider)) {
+                throw invalid("the demo profile requires the demo payment provider");
+            }
+            if (!Boolean.parseBoolean(required(environment, "PAYMENT_DEMO_ENABLED"))) {
+                throw invalid("PAYMENT_DEMO_ENABLED must be explicitly true in the demo profile");
+            }
         }
     }
 

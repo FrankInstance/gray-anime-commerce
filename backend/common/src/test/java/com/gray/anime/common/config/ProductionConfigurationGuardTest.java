@@ -27,6 +27,12 @@ class ProductionConfigurationGuardTest {
         mixedProfiles.setActiveProfiles("prod", "local");
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(mixedProfiles))
                 .hasMessageContaining("cannot be combined");
+
+        MockEnvironment demoAndProduction = validBase("gateway-service")
+                .withProperty("CORS_ALLOWED_ORIGIN_PATTERNS", "https://gray.example.com");
+        demoAndProduction.setActiveProfiles("prod", "demo");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(demoAndProduction))
+                .hasMessageContaining("each other");
     }
 
     @Test
@@ -53,6 +59,36 @@ class ProductionConfigurationGuardTest {
     void acceptsExplicitUserServiceSecrets() {
         assertThatCode(() -> ProductionConfigurationGuard.validate(validUserEnvironment()))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void demoDeploymentRequiresAnExplicitDemoPaymentOptIn() {
+        MockEnvironment demoPayment = validBase("payment-service")
+                .withProperty("MYSQL_PASSWORD", "production-mysql-password")
+                .withProperty("RABBITMQ_PASSWORD", "production-rabbit-password")
+                .withProperty("payment.provider", "demo")
+                .withProperty("PAYMENT_DEMO_ENABLED", "true");
+        demoPayment.setActiveProfiles("demo");
+        assertThatCode(() -> ProductionConfigurationGuard.validate(demoPayment)).doesNotThrowAnyException();
+
+        MockEnvironment missingOptIn = validBase("payment-service")
+                .withProperty("MYSQL_PASSWORD", "production-mysql-password")
+                .withProperty("RABBITMQ_PASSWORD", "production-rabbit-password")
+                .withProperty("payment.provider", "demo");
+        missingOptIn.setActiveProfiles("demo");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(missingOptIn))
+                .hasMessageContaining("PAYMENT_DEMO_ENABLED");
+    }
+
+    @Test
+    void productionRejectsTheDemoPaymentProvider() {
+        MockEnvironment productionPayment = validBase("payment-service")
+                .withProperty("MYSQL_PASSWORD", "production-mysql-password")
+                .withProperty("RABBITMQ_PASSWORD", "production-rabbit-password")
+                .withProperty("payment.provider", "demo");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(productionPayment))
+                .hasMessageContaining("demo payment");
     }
 
     private MockEnvironment validUserEnvironment() {

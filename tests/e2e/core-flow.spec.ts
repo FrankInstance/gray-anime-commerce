@@ -94,7 +94,7 @@ test('forgot password resets credentials and returns to login', async ({ page })
   await expect(page.locator('.accountTrigger')).toContainText(account.username);
 });
 
-test('cart selection controls checkout and mock payment completes the order', async ({ page, request }) => {
+test('cart selection controls checkout and demo payment completes the order', async ({ page, request }) => {
   const { auth } = await register(page.request, 'browser-cart');
   await page.goto('/');
   await expect(page.locator('.accountTrigger')).toContainText(auth.profile.username);
@@ -120,7 +120,7 @@ test('cart selection controls checkout and mock payment completes the order', as
 
   await checkout.click();
   await expect(cart.getByText('订单已创建，请确认支付。')).toBeVisible();
-  await cart.getByRole('button', { name: '确认支付' }).click();
+  await cart.getByRole('button', { name: '模拟支付' }).click();
 
   await expect(cart).toBeHidden();
   await expect(page.getByRole('status')).toHaveText('支付成功');
