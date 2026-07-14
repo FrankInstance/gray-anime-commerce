@@ -1097,6 +1097,13 @@ button.secondary,
   text-shadow: 0 0 14px rgba(243, 255, 117, 0.22);
 }
 
+.demoPaymentNotice {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .paymentMeta {
   display: grid;
   gap: 8px;

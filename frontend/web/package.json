@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc && vite build",
     "build:local": "tsc && vite build --mode mock",
+    "build:demo": "tsc && vite build --mode demo",
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {

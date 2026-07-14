@@ -26,6 +26,20 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml config --q
 docker compose -f docker-compose.yml -f docker-compose.production.yml up -d --build --wait
 ```
 
+## Public portfolio demo
+
+The public demo keeps the same deployment secrets, HTTPS cookie, and exact CORS requirements as production, but uses a clearly labelled payment simulation. It never receives real funds.
+
+Build the demo browser assets and add the explicit demo overlay last:
+
+```powershell
+npm run build:demo
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml up -d --build --wait
+```
+
+`docker-compose.demo.yml` switches every backend service to the `demo` profile and explicitly enables the Demo payment provider. The application refuses to start if Demo payment is combined with `prod`, `local`, or `test`. The legacy `mock-confirm` endpoint is not registered in a public Demo deployment.
+
 Do not put real values in a tracked `.env` file. This overlay does not replace host firewalling, TLS termination, database backups, Nacos hardening, or a managed secret service.
 
 Use a fresh production database and volume. A database previously started with the `local` profile may already contain seeded development accounts, and changing profiles does not delete existing rows.

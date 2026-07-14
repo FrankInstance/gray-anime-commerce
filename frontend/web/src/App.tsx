@@ -81,7 +81,14 @@ type PaymentView = { paymentNo: string; orderNo: string; amountCents: number; ch
 type PendingPayment = { orderNo: string; paymentNo: string; amountCents: number; status: string; itemSkuIds?: number[] };
 type PendingRechargePayment = PendingPayment & { optionTitle: string; successMessage: string };
 type RealPaymentRequest = { orderNo: string; paymentNo: string; amountCents: number };
-type RealPaymentSession = { provider: string; sessionId: string; paymentNo: string; redirectUrl: string };
+type RealPaymentSession = {
+  provider: string;
+  sessionId: string;
+  paymentNo: string;
+  interactionMode: 'DEMO_CONFIRMATION' | 'REDIRECT';
+  redirectUrl: string | null;
+  expiresAt: string;
+};
 type RechargeOption = {
   id: string;
   type: 'POINTS' | 'VIP';
@@ -94,6 +101,8 @@ type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
 type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
 type BookshelfSort = 'recentReading' | 'recentAdded';
 type ReaderTheme = 'night' | 'dim' | 'paper';
+
+const DEMO_PAYMENT_ENABLED = import.meta.env.VITE_PAYMENT_MODE === 'demo';
 type ReaderWidth = 'compact' | 'standard' | 'wide';
 type ReaderSettings = {
   fontSize: number;
@@ -264,15 +273,22 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
 }
 
 async function executePayment(payment: RealPaymentRequest, token: string) {
-  if (import.meta.env.VITE_PAYMENT_MODE === 'mock') {
-    await api<PaymentView>(`/api/v1/payments/${payment.paymentNo}/mock-confirm`, { method: 'POST' }, token);
+  const session = await api<RealPaymentSession>('/api/v1/payments/checkout-session', {
+    method: 'POST',
+    body: JSON.stringify({ paymentNo: payment.paymentNo })
+  }, token);
+
+  if (DEMO_PAYMENT_ENABLED) {
+    if (session.interactionMode !== 'DEMO_CONFIRMATION' || session.provider !== 'DEMO') {
+      throw new Error('演示支付暂不可用。');
+    }
+    await api<PaymentView>(`/api/v1/payments/${session.paymentNo}/demo-confirm`, { method: 'POST' }, token);
     return true;
   }
 
-  const session = await api<RealPaymentSession>('/api/v1/payments/checkout-session', {
-    method: 'POST',
-    body: JSON.stringify(payment)
-  }, token);
+  if (session.interactionMode !== 'REDIRECT' || !session.redirectUrl) {
+    throw new Error('支付服务暂不可用。');
+  }
   const redirectUrl = new URL(session.redirectUrl, window.location.origin);
   if (redirectUrl.protocol !== 'https:' && redirectUrl.protocol !== 'http:') {
     throw new Error('支付地址无效。');
@@ -3126,6 +3142,7 @@ function PaymentPrompt({
       <div>
         <h3>订单待支付</h3>
       </div>
+      {DEMO_PAYMENT_ENABLED && <p className="demoPaymentNotice">演示支付，不会产生真实扣款。</p>}
       <dl className="paymentMeta">
         <div>
           <dt>订单号</dt>
@@ -3141,7 +3158,7 @@ function PaymentPrompt({
         </div>
       </dl>
       <button type="button" disabled={loading} onClick={onConfirm}>
-        <Sparkles size={16} /> {loading ? '确认中...' : '确认支付'}
+        <Sparkles size={16} /> {loading ? '确认中...' : DEMO_PAYMENT_ENABLED ? '模拟支付' : '前往支付'}
       </button>
     </section>
   );

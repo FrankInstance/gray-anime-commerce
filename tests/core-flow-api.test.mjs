@@ -59,6 +59,18 @@ async function register(prefix) {
   return { account, auth, token: auth.accessToken };
 }
 
+async function confirmDemoPayment(paymentNo, token) {
+  const session = await api('/api/v1/payments/checkout-session', {
+    method: 'POST',
+    token,
+    body: { paymentNo }
+  });
+  assert.equal(session.provider, 'DEMO');
+  assert.equal(session.interactionMode, 'DEMO_CONFIRMATION');
+  assert.equal(session.paymentNo, paymentNo);
+  return api(`/api/v1/payments/${paymentNo}/demo-confirm`, { method: 'POST', token });
+}
+
 async function expectApiError(action, expectedCode, expectedMessage) {
   await assert.rejects(action, (error) => {
     assert.ok(error instanceof ApiError);
@@ -219,7 +231,7 @@ test('reading progress restores the exact position and Chinese text stays UTF-8'
   assert.equal(item.progressPercent, 48);
 });
 
-test('points recharge unlocks a paid chapter through mock payment', async () => {
+test('points recharge unlocks a paid chapter through demo payment', async () => {
   const { token } = await register('points');
 
   await expectApiError(
@@ -236,10 +248,7 @@ test('points recharge unlocks a paid chapter through mock payment', async () => 
   assert.equal(rechargeOrder.totalPoints, 100);
   assert.ok(rechargeOrder.paymentNo);
 
-  const payment = await api(`/api/v1/payments/${rechargeOrder.paymentNo}/mock-confirm`, {
-    method: 'POST',
-    token
-  });
+  const payment = await confirmDemoPayment(rechargeOrder.paymentNo, token);
   assert.equal(payment.status, 'CONFIRMED');
 
   const rechargedProfile = await api('/api/v1/users/me', { token });
@@ -281,10 +290,7 @@ test('a product order can be paid and appears with the concrete product title', 
   assert.equal(order.status, 'PENDING_PAYMENT');
   assert.equal(order.totalCents, sku.priceCents);
 
-  const payment = await api(`/api/v1/payments/${order.paymentNo}/mock-confirm`, {
-    method: 'POST',
-    token
-  });
+  const payment = await confirmDemoPayment(order.paymentNo, token);
   assert.equal(payment.status, 'CONFIRMED');
 
   const paidOrders = await api('/api/v1/orders?page=1&size=20&status=PAID', { token });
@@ -310,15 +316,58 @@ test('a pending product order can be cancelled and can no longer be paid', async
   assert.equal(cancelled.paymentStatus, 'CANCELLED');
 
   await expectApiError(
-    () => api(`/api/v1/payments/${order.paymentNo}/mock-confirm`, { method: 'POST', token }),
+    () => confirmDemoPayment(order.paymentNo, token),
     'ORDER_CANCELLED'
   );
+});
+
+test('payment ownership is enforced and repeated demo confirmation is idempotent', async () => {
+  const { token: ownerToken } = await register('payment-owner');
+  const { token: attackerToken } = await register('payment-attacker');
+  const order = await api('/api/v1/orders/points', {
+    method: 'POST',
+    token: ownerToken,
+    body: { amountCents: 1000 }
+  });
+
+  await expectApiError(
+    () => api(`/api/v1/payments/${order.paymentNo}/demo-confirm`, {
+      method: 'POST',
+      token: ownerToken
+    }),
+    'PAYMENT_SESSION_REQUIRED'
+  );
+
+  await expectApiError(
+    () => api('/api/v1/payments/checkout-session', {
+      method: 'POST',
+      token: attackerToken,
+      body: { paymentNo: order.paymentNo }
+    }),
+    'PAYMENT_NOT_FOUND'
+  );
+  await expectApiError(
+    () => api(`/api/v1/payments/${order.paymentNo}/demo-confirm`, {
+      method: 'POST',
+      token: attackerToken
+    }),
+    'PAYMENT_NOT_FOUND'
+  );
+
+  await confirmDemoPayment(order.paymentNo, ownerToken);
+  const repeated = await api(`/api/v1/payments/${order.paymentNo}/demo-confirm`, {
+    method: 'POST',
+    token: ownerToken
+  });
+  assert.equal(repeated.status, 'CONFIRMED');
+  const profile = await api('/api/v1/users/me', { token: ownerToken });
+  assert.equal(profile.points, 100);
 });
 
 test('VIP activation applies the member price to product checkout', async () => {
   const { token } = await register('vip');
   const vipOrder = await api('/api/v1/vip/orders', { method: 'POST', token });
-  await api(`/api/v1/payments/${vipOrder.paymentNo}/mock-confirm`, { method: 'POST', token });
+  await confirmDemoPayment(vipOrder.paymentNo, token);
 
   const profile = await api('/api/v1/users/me', { token });
   assert.ok(profile.roles.includes('VIP'));
