@@ -256,6 +256,9 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
     }
   });
   if (!response.ok) {
+    if (response.status === 429) {
+      throw new ApiRequestError('操作频繁，请稍后再试。', 429, 'RATE_LIMITED');
+    }
     const text = await response.text();
     let message = text || response.statusText;
     let code = `HTTP_${response.status}`;

@@ -6,6 +6,7 @@ services:
   user-service:
     environment:
       SPRING_PROFILES_ACTIVE: demo
+      DEMO_CLEANUP_ENABLED: "true"
 
   content-service:
     environment:

@@ -128,6 +128,7 @@ services:
       SERVER_PORT: 8080
       SPRING_PROFILES_ACTIVE: local
       NACOS_ADDR: nacos:8848
+      REDIS_HOST: redis
       JAVA_OPTS: "-Xms128m -Xmx256m"
       JWT_ISSUER: gray-auth
       JWT_AUDIENCE: gray-api
@@ -139,6 +140,8 @@ services:
       - "8080:8080"
     depends_on:
       nacos:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck: *backend-healthcheck
     restart: unless-stopped

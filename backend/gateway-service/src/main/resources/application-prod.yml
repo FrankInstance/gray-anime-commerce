@@ -1,0 +1,15 @@
+operations:
+  rate-limit:
+    trusted-proxy-hops: ${RATE_LIMIT_TRUSTED_PROXY_HOPS:1}
+    auth-login:
+      replenish-rate: 1
+      burst-capacity: 60
+      requested-tokens: 6
+    auth-account:
+      replenish-rate: 1
+      burst-capacity: 60
+      requested-tokens: 12
+    payment:
+      replenish-rate: 1
+      burst-capacity: 60
+      requested-tokens: 3
