@@ -1,2 +1,3 @@
 com.gray.anime.common.api.CommonWebConfig
+com.gray.anime.common.config.ProductionConfigurationGuard
 com.gray.anime.common.security.AccessTokenServletConfig

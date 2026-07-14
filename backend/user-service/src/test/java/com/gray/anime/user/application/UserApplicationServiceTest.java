@@ -6,12 +6,16 @@ import com.gray.anime.common.exception.BizException;
 import com.gray.anime.common.security.AccessTokenIssuer;
 import com.gray.anime.user.domain.AppUser;
 import com.gray.anime.user.domain.AuthSession;
+import com.gray.anime.user.domain.NotificationMessage;
+import com.gray.anime.user.domain.PasswordResetToken;
 import com.gray.anime.user.infrastructure.mapper.AppUserMapper;
 import com.gray.anime.user.infrastructure.mapper.AuthSessionMapper;
 import com.gray.anime.user.infrastructure.mapper.NotificationMessageMapper;
 import com.gray.anime.user.infrastructure.mapper.PasswordResetTokenMapper;
 import com.gray.anime.user.infrastructure.mapper.PointsLedgerMapper;
 import com.gray.anime.user.interfaces.dto.LoginRequest;
+import com.gray.anime.user.interfaces.dto.PasswordResetDevResponse;
+import com.gray.anime.user.interfaces.dto.PasswordResetRequest;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -28,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,18 +42,21 @@ class UserApplicationServiceTest {
 
     private final AppUserMapper userMapper = mock(AppUserMapper.class);
     private final AuthSessionMapper authSessionMapper = mock(AuthSessionMapper.class);
+    private final PasswordResetTokenMapper resetTokenMapper = mock(PasswordResetTokenMapper.class);
+    private final NotificationMessageMapper notificationMapper = mock(NotificationMessageMapper.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
     private final UserApplicationService service = new UserApplicationService(
             userMapper,
             authSessionMapper,
             mock(PointsLedgerMapper.class),
-            mock(PasswordResetTokenMapper.class),
-            mock(NotificationMessageMapper.class),
+            resetTokenMapper,
+            notificationMapper,
             passwordEncoder,
             accessTokenIssuer,
             ACCESS_TTL_SECONDS,
-            SESSION_IDLE_TTL_SECONDS
+            SESSION_IDLE_TTL_SECONDS,
+            "disabled"
     );
 
     @BeforeAll
@@ -109,6 +117,42 @@ class UserApplicationServiceTest {
         );
 
         assertEquals("SESSION_EXPIRED", exception.code());
+    }
+
+    @Test
+    void productionPasswordResetFailsClosedWhenNoDeliveryProviderIsConfigured() {
+        BizException exception = assertThrows(
+                BizException.class,
+                () -> service.requestPasswordReset(new PasswordResetRequest("reader@example.com"))
+        );
+
+        assertEquals("PASSWORD_RESET_UNAVAILABLE", exception.code());
+        verifyNoInteractions(resetTokenMapper, notificationMapper);
+    }
+
+    @Test
+    void developmentPasswordResetReturnsTheLocalVerificationToken() {
+        AppUser user = activeUser();
+        when(userMapper.selectOne(any())).thenReturn(user);
+        UserApplicationService developmentService = new UserApplicationService(
+                userMapper,
+                authSessionMapper,
+                mock(PointsLedgerMapper.class),
+                resetTokenMapper,
+                notificationMapper,
+                passwordEncoder,
+                accessTokenIssuer,
+                ACCESS_TTL_SECONDS,
+                SESSION_IDLE_TTL_SECONDS,
+                "development"
+        );
+
+        PasswordResetDevResponse response = developmentService.requestPasswordReset(new PasswordResetRequest(user.getEmail()));
+
+        assertEquals("EMAIL_DEV_SIMULATOR", response.channel());
+        assertTrue(response.devToken() != null && response.devToken().matches("\\d{6}"));
+        verify(resetTokenMapper).insert(any(PasswordResetToken.class));
+        verify(notificationMapper).insert(any(NotificationMessage.class));
     }
 
     private AppUser activeUser() {

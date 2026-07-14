@@ -48,6 +48,7 @@ public class UserApplicationService {
     private final AccessTokenIssuer accessTokenIssuer;
     private final long accessTokenTtlSeconds;
     private final long sessionIdleTtlSeconds;
+    private final boolean developmentPasswordReset;
 
     public UserApplicationService(
             AppUserMapper userMapper,
@@ -58,7 +59,8 @@ public class UserApplicationService {
             PasswordEncoder passwordEncoder,
             AccessTokenIssuer accessTokenIssuer,
             @Value("${security.session.access-token-ttl-seconds:900}") long accessTokenTtlSeconds,
-            @Value("${security.session.idle-ttl-seconds:259200}") long sessionIdleTtlSeconds
+            @Value("${security.session.idle-ttl-seconds:259200}") long sessionIdleTtlSeconds,
+            @Value("${security.password-reset.mode:disabled}") String passwordResetMode
     ) {
         this.userMapper = userMapper;
         this.authSessionMapper = authSessionMapper;
@@ -69,6 +71,10 @@ public class UserApplicationService {
         this.accessTokenIssuer = accessTokenIssuer;
         this.accessTokenTtlSeconds = accessTokenTtlSeconds;
         this.sessionIdleTtlSeconds = sessionIdleTtlSeconds;
+        if (!Set.of("disabled", "development").contains(passwordResetMode)) {
+            throw new IllegalArgumentException("Unsupported password reset mode: " + passwordResetMode);
+        }
+        this.developmentPasswordReset = "development".equals(passwordResetMode);
     }
 
     @Transactional
@@ -203,9 +209,12 @@ public class UserApplicationService {
 
     @Transactional
     public PasswordResetDevResponse requestPasswordReset(PasswordResetRequest request) {
+        if (!developmentPasswordReset) {
+            throw new BizException("PASSWORD_RESET_UNAVAILABLE", "Password reset delivery is not configured");
+        }
         AppUser user = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, normalizeEmail(request.email())));
         if (user == null) {
-            return new PasswordResetDevResponse("EMAIL_DEV_SIMULATOR", "sent-if-user-exists", LocalDateTime.now().plusMinutes(20));
+            return new PasswordResetDevResponse("EMAIL", null, LocalDateTime.now().plusMinutes(20));
         }
         String token = "%06d".formatted(RANDOM.nextInt(1_000_000));
         LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(20);

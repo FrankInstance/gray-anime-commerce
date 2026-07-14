@@ -8,9 +8,10 @@
   "scripts": {
     "setup:auth-keys": "node deploy/keys/generate-dev-keys.mjs",
     "build": "npm run build -w frontend/web && npm run build -w frontend/admin",
+    "build:local": "npm run build:local -w frontend/web && npm run build -w frontend/admin",
     "dev:web": "npm run dev -w frontend/web",
     "dev:admin": "npm run dev -w frontend/admin",
-    "test:core:backend": "mvn -pl backend/gateway-service,backend/user-service,backend/order-service -am test",
+    "test:core:backend": "mvn -pl backend/gateway-service,backend/user-service,backend/order-service,backend/payment-service,backend/ingestion-service -am test",
     "test:core:api": "node --test --test-concurrency=1 tests/core-flow-api.test.mjs",
     "test:core:web": "playwright test",
     "test:core": "npm run test:core:backend && npm run test:core:api && npm run test:core:web"

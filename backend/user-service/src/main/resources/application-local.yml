@@ -1,0 +1,3 @@
+security:
+  password-reset:
+    mode: development
