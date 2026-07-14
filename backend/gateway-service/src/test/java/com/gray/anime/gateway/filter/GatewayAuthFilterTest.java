@@ -78,6 +78,8 @@ class GatewayAuthFilterTest {
         assertThat(forwarded.get().getHeaders().getFirst("X-User-Id")).isNull();
         assertThat(forwarded.get().getHeaders().getFirst(HttpHeaders.AUTHORIZATION))
                 .isEqualTo("Bearer " + token);
+        assertThat(exchange.<Long>getAttribute(GatewayAuthFilter.AUTHENTICATED_USER_ID_ATTRIBUTE))
+                .isEqualTo(7L);
     }
 
     @Test

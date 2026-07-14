@@ -21,6 +21,7 @@ import java.util.Set;
 
 @Component
 public class GatewayAuthFilter implements GlobalFilter, Ordered {
+    public static final String AUTHENTICATED_USER_ID_ATTRIBUTE = GatewayAuthFilter.class.getName() + ".userId";
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String USER_ROLES_HEADER = "X-User-Roles";
     private final AccessTokenVerifier accessTokenVerifier;
@@ -46,6 +47,9 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
                         headers.remove(USER_ROLES_HEADER);
                     });
             JwtClaims claims = resolveClaims(exchange.getRequest().getHeaders().getFirst(HttpHeaders.AUTHORIZATION));
+            if (claims != null) {
+                exchange.getAttributes().put(AUTHENTICATED_USER_ID_ATTRIBUTE, claims.userId());
+            }
             if (ApiAccessPolicy.isInternal(path)) {
                 return reject(exchange, HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found", traceId);
             }

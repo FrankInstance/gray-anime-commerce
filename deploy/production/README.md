@@ -40,6 +40,12 @@ docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-
 
 `docker-compose.demo.yml` switches every backend service to the `demo` profile and explicitly enables the Demo payment provider. The application refuses to start if Demo payment is combined with `prod`, `local`, or `test`. The legacy `mock-confirm` endpoint is not registered in a public Demo deployment.
 
+The public gateway applies Redis-backed token-bucket limits to login, registration, password recovery, and payment operations. The production overlay removes the gateway's direct host port, so public traffic reaches it through the frontend reverse proxy and its trusted forwarded address.
+
+The Demo user service also enables a persistent cleanup schedule. Its first startup records a run six months in the future; a daily 04:00 Asia/Shanghai check executes overdue work even after downtime. A database-backed claim prevents multiple service replicas from running the cleanup together. Cleanup removes non-admin users and their sessions, points records, bookshelf state, carts, orders, and payments, restores inventory affected by their reservations, and schedules the next run six months later. Admin users and catalog/content data are retained.
+
+`PAYMENT_DEMO_ENABLED=true` and `DEMO_CLEANUP_ENABLED=true` are mandatory explicit opt-ins in the Demo overlay. Production rejects both Demo payment and Demo cleanup.
+
 Do not put real values in a tracked `.env` file. This overlay does not replace host firewalling, TLS termination, database backups, Nacos hardening, or a managed secret service.
 
 Use a fresh production database and volume. A database previously started with the `local` profile may already contain seeded development accounts, and changing profiles does not delete existing rows.

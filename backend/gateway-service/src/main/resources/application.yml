@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: gateway-service
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
   cloud:
     nacos:
       discovery:
@@ -27,6 +31,32 @@ spring:
                 exposed-headers: X-Trace-Id
                 allow-credentials: true
           routes:
+            - id: auth-login-rate-limited
+              order: -20
+              uri: lb://user-service
+              predicates:
+                - Path=/api/v1/auth/login
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@clientAddressKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${operations.rate-limit.auth-login.replenish-rate}
+                    redis-rate-limiter.burstCapacity: ${operations.rate-limit.auth-login.burst-capacity}
+                    redis-rate-limiter.requestedTokens: ${operations.rate-limit.auth-login.requested-tokens}
+            - id: auth-account-rate-limited
+              order: -20
+              uri: lb://user-service
+              predicates:
+                - Path=/api/v1/auth/register,/api/v1/auth/password-reset/**
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@clientAddressKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${operations.rate-limit.auth-account.replenish-rate}
+                    redis-rate-limiter.burstCapacity: ${operations.rate-limit.auth-account.burst-capacity}
+                    redis-rate-limiter.requestedTokens: ${operations.rate-limit.auth-account.requested-tokens}
             - id: user-service
               uri: lb://user-service
               predicates:
@@ -51,6 +81,13 @@ spring:
               uri: lb://payment-service
               predicates:
                 - Path=/api/v1/payments/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrClientAddressKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${operations.rate-limit.payment.replenish-rate}
+                    redis-rate-limiter.burstCapacity: ${operations.rate-limit.payment.burst-capacity}
+                    redis-rate-limiter.requestedTokens: ${operations.rate-limit.payment.requested-tokens}
             - id: ingestion-service
               uri: lb://ingestion-service
               predicates:
@@ -62,6 +99,22 @@ security:
     audience: ${JWT_AUDIENCE:gray-api}
     key-id: ${JWT_KEY_ID:gray-access-2026-01}
     public-key-location: ${JWT_PUBLIC_KEY_LOCATION:file:./deploy/keys/access-token-public.pem}
+
+operations:
+  rate-limit:
+    trusted-proxy-hops: 0
+    auth-login:
+      replenish-rate: 100
+      burst-capacity: 100
+      requested-tokens: 1
+    auth-account:
+      replenish-rate: 100
+      burst-capacity: 100
+      requested-tokens: 1
+    payment:
+      replenish-rate: 100
+      burst-capacity: 100
+      requested-tokens: 1
 
 management:
   endpoints:

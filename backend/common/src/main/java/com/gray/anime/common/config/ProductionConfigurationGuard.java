@@ -60,9 +60,11 @@ public class ProductionConfigurationGuard {
             if ("development".equalsIgnoreCase(environment.getProperty("security.password-reset.mode", "disabled"))) {
                 throw invalid("development password reset must not be enabled in the prod profile");
             }
+            validateDemoCleanup(environment);
         }
         if ("gateway-service".equals(serviceName)) {
             validateCors(environment);
+            required(environment, "REDIS_HOST");
         }
         if ("payment-service".equals(serviceName)) {
             validatePaymentMode(environment);
@@ -91,6 +93,17 @@ public class ProductionConfigurationGuard {
             if (!Boolean.parseBoolean(required(environment, "PAYMENT_DEMO_ENABLED"))) {
                 throw invalid("PAYMENT_DEMO_ENABLED must be explicitly true in the demo profile");
             }
+        }
+    }
+
+    private static void validateDemoCleanup(Environment environment) {
+        Set<String> activeProfiles = Set.copyOf(Arrays.asList(environment.getActiveProfiles()));
+        boolean enabled = Boolean.parseBoolean(environment.getProperty("DEMO_CLEANUP_ENABLED", "false"));
+        if (activeProfiles.contains("prod") && enabled) {
+            throw invalid("demo data cleanup must not be enabled in the prod profile");
+        }
+        if (activeProfiles.contains("demo") && !enabled) {
+            throw invalid("DEMO_CLEANUP_ENABLED must be explicitly true in the demo profile");
         }
     }
 

@@ -1,0 +1,8 @@
+security:
+  password-reset:
+    mode: disabled
+
+demo:
+  maintenance:
+    cleanup-enabled: ${DEMO_CLEANUP_ENABLED:false}
+    cleanup-check-cron: ${DEMO_CLEANUP_CHECK_CRON:0 0 4 * * *}

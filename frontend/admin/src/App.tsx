@@ -41,7 +41,10 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
       ...(options.headers ?? {})
     }
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    if (response.status === 429) throw new Error('操作频繁，请稍后再试。');
+    throw new Error(await response.text());
+  }
   const body = (await response.json()) as ApiResponse<T>;
   return body.data;
 }

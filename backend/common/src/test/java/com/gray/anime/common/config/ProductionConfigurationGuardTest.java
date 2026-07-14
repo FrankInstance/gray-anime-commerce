@@ -10,6 +10,7 @@ class ProductionConfigurationGuardTest {
     @Test
     void acceptsExplicitGatewayProductionConfiguration() {
         MockEnvironment environment = validBase("gateway-service")
+                .withProperty("REDIS_HOST", "redis")
                 .withProperty("CORS_ALLOWED_ORIGIN_PATTERNS", "https://gray.example.com");
 
         assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
@@ -18,17 +19,20 @@ class ProductionConfigurationGuardTest {
     @Test
     void rejectsLocalCorsAndMixedProfiles() {
         MockEnvironment localCors = validBase("gateway-service")
+                .withProperty("REDIS_HOST", "redis")
                 .withProperty("CORS_ALLOWED_ORIGIN_PATTERNS", "http://localhost:5173");
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(localCors))
                 .hasMessageContaining("exact HTTPS production origins");
 
         MockEnvironment mixedProfiles = validBase("gateway-service")
+                .withProperty("REDIS_HOST", "redis")
                 .withProperty("CORS_ALLOWED_ORIGIN_PATTERNS", "https://gray.example.com");
         mixedProfiles.setActiveProfiles("prod", "local");
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(mixedProfiles))
                 .hasMessageContaining("cannot be combined");
 
         MockEnvironment demoAndProduction = validBase("gateway-service")
+                .withProperty("REDIS_HOST", "redis")
                 .withProperty("CORS_ALLOWED_ORIGIN_PATTERNS", "https://gray.example.com");
         demoAndProduction.setActiveProfiles("prod", "demo");
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(demoAndProduction))
@@ -89,6 +93,24 @@ class ProductionConfigurationGuardTest {
 
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(productionPayment))
                 .hasMessageContaining("demo payment");
+    }
+
+    @Test
+    void demoUserServiceRequiresCleanupAndProductionRejectsIt() {
+        MockEnvironment demoUser = validUserEnvironment()
+                .withProperty("DEMO_CLEANUP_ENABLED", "true");
+        demoUser.setActiveProfiles("demo");
+        assertThatCode(() -> ProductionConfigurationGuard.validate(demoUser)).doesNotThrowAnyException();
+
+        MockEnvironment missingDemoCleanup = validUserEnvironment();
+        missingDemoCleanup.setActiveProfiles("demo");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(missingDemoCleanup))
+                .hasMessageContaining("DEMO_CLEANUP_ENABLED");
+
+        MockEnvironment productionWithCleanup = validUserEnvironment()
+                .withProperty("DEMO_CLEANUP_ENABLED", "true");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(productionWithCleanup))
+                .hasMessageContaining("must not be enabled in the prod profile");
     }
 
     private MockEnvironment validUserEnvironment() {
