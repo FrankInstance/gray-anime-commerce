@@ -73,7 +73,7 @@ type CartLine = {
 type Profile = { id: number; email: string; username: string; roles: string[]; status?: string; points: number; vipUntil: string | null };
 type AuthMode = 'login' | 'register' | 'resetRequest' | 'resetConfirm';
 type AuthResponse = { accessToken: string; expiresIn: number; profile: Profile; roles: string[] };
-type PasswordResetResponse = { channel: string; devToken: string; expiresAt: string };
+type PasswordResetResponse = { channel: string; devToken?: string | null; expiresAt: string };
 type OrderItemView = { itemType: string; refId: number | null; skuId: number | null; title: string; quantity: number; unitPriceCents: number; unitPoints: number; reservationNo: string | null };
 type OrderView = { id: number; orderNo: string; orderType: string; totalCents: number; totalPoints: number; status: string; paymentNo: string | null; paymentStatus: string | null; paymentChannel: string | null; paidAt: string | null; createdAt: string; items: OrderItemView[] };
 type PointsLedgerView = { id: number; amount: number; reason: string; bizKey: string; createdAt: string };
@@ -82,10 +82,6 @@ type PendingPayment = { orderNo: string; paymentNo: string; amountCents: number;
 type PendingRechargePayment = PendingPayment & { optionTitle: string; successMessage: string };
 type RealPaymentRequest = { orderNo: string; paymentNo: string; amountCents: number };
 type RealPaymentSession = { provider: string; sessionId: string; paymentNo: string; redirectUrl: string };
-type PaymentGateway = {
-  confirmMockPayment: (paymentNo: string, token: string) => Promise<PaymentView>;
-  createRealPaymentSession: (request: RealPaymentRequest, token: string) => Promise<RealPaymentSession>;
-};
 type RechargeOption = {
   id: string;
   type: 'POINTS' | 'VIP';
@@ -267,17 +263,23 @@ async function api<T>(path: string, options: RequestInit = {}, token?: string): 
   return body.data;
 }
 
-const paymentGateway: PaymentGateway = {
-  confirmMockPayment(paymentNo, token) {
-    return api<PaymentView>(`/api/v1/payments/${paymentNo}/mock-confirm`, { method: 'POST' }, token);
-  },
-  createRealPaymentSession(request, token) {
-    return api<RealPaymentSession>('/api/v1/payments/checkout-session', {
-      method: 'POST',
-      body: JSON.stringify(request)
-    }, token);
+async function executePayment(payment: RealPaymentRequest, token: string) {
+  if (import.meta.env.VITE_PAYMENT_MODE === 'mock') {
+    await api<PaymentView>(`/api/v1/payments/${payment.paymentNo}/mock-confirm`, { method: 'POST' }, token);
+    return true;
   }
-};
+
+  const session = await api<RealPaymentSession>('/api/v1/payments/checkout-session', {
+    method: 'POST',
+    body: JSON.stringify(payment)
+  }, token);
+  const redirectUrl = new URL(session.redirectUrl, window.location.origin);
+  if (redirectUrl.protocol !== 'https:' && redirectUrl.protocol !== 'http:') {
+    throw new Error('支付地址无效。');
+  }
+  window.location.assign(redirectUrl.toString());
+  return false;
+}
 
 function money(cents: number) {
   return `¥${(cents / 100).toFixed(2)}`;
@@ -1147,7 +1149,7 @@ export function App() {
           method: 'POST',
           body: JSON.stringify({ email: authEmail.trim() })
         });
-        setAuthResetToken(data.devToken === 'sent-if-user-exists' ? '' : data.devToken);
+        setAuthResetToken(data.devToken ?? '');
         setAuthPassword('');
         setAuthMode('resetConfirm');
         setAuthMessage('验证码已发送，请设置新密码。');
@@ -1277,7 +1279,8 @@ export function App() {
     setRechargePaymentLoading(true);
     setRechargeMessage('');
     try {
-      await paymentGateway.confirmMockPayment(pendingRechargePayment.paymentNo, token);
+      const confirmed = await executePayment(pendingRechargePayment, token);
+      if (!confirmed) return;
       await refreshProfile();
       setRechargeMessage(pendingRechargePayment.successMessage);
       setPendingRechargePayment(null);
@@ -1297,7 +1300,12 @@ export function App() {
     setAccountPayingOrderNo(order.orderNo);
     setAccountError('');
     try {
-      await paymentGateway.confirmMockPayment(order.paymentNo, token);
+      const confirmed = await executePayment({
+        orderNo: order.orderNo,
+        paymentNo: order.paymentNo,
+        amountCents: order.totalCents
+      }, token);
+      if (!confirmed) return;
       await refreshProfile();
       await loadAccountData(false);
     } catch (error) {
@@ -1456,7 +1464,7 @@ export function App() {
     }
   }
 
-  async function confirmMockPayment() {
+  async function confirmCartPayment() {
     if (!pendingPayment || paymentLoading) return;
     if (!token) {
       setCartOpen(false);
@@ -1468,7 +1476,8 @@ export function App() {
     setCartMessage('');
     setCartItemMessages({});
     try {
-      await paymentGateway.confirmMockPayment(pendingPayment.paymentNo, token);
+      const confirmed = await executePayment(pendingPayment, token);
+      if (!confirmed) return;
       const paidSkuIds = new Set(pendingPayment.itemSkuIds ?? cartItems.map((item) => item.skuId));
       const remainingItems = cartItems.filter((item) => !paidSkuIds.has(item.skuId));
       setCartItems(remainingItems);
@@ -1810,7 +1819,7 @@ export function App() {
           onBrowseMemberGoods={browseMemberGoods}
           onChangeQuantity={changeCartQuantity}
           onCheckout={checkoutCart}
-          onConfirmMockPayment={confirmMockPayment}
+          onConfirmPayment={confirmCartPayment}
           onClose={() => setCartOpen(false)}
           onRemove={removeCartItem}
           onRemoveSelected={removeSelectedCartItems}
@@ -2487,7 +2496,7 @@ function CartPanel({
   onBrowseMemberGoods,
   onChangeQuantity,
   onCheckout,
-  onConfirmMockPayment,
+  onConfirmPayment,
   onClose,
   onRemove,
   onRemoveSelected,
@@ -2509,7 +2518,7 @@ function CartPanel({
   onBrowseMemberGoods: () => void;
   onChangeQuantity: (skuId: number, quantity: number) => void;
   onCheckout: () => void;
-  onConfirmMockPayment: () => void;
+  onConfirmPayment: () => void;
   onClose: () => void;
   onRemove: (skuId: number) => void;
   onRemoveSelected: () => void;
@@ -2599,7 +2608,7 @@ function CartPanel({
               <PaymentPrompt
                 loading={paymentLoading}
                 payment={pendingPayment}
-                onConfirm={onConfirmMockPayment}
+                onConfirm={onConfirmPayment}
               />
             )}
 

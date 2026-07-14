@@ -5,12 +5,14 @@ import com.gray.anime.user.domain.AppUser;
 import com.gray.anime.user.infrastructure.mapper.AppUserMapper;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
 @Component
+@Profile({"local", "test"})
 public class UserDataSeeder implements ApplicationRunner {
     private final AppUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;

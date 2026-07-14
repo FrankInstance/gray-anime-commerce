@@ -1,0 +1,63 @@
+x-production-jwt-environment: &production-jwt-env
+  SPRING_PROFILES_ACTIVE: prod
+  JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER must be supplied by deployment configuration}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:?JWT_AUDIENCE must be supplied by deployment configuration}
+  JWT_KEY_ID: ${JWT_KEY_ID:?JWT_KEY_ID must be supplied by deployment configuration}
+  JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+
+x-production-service-environment: &production-service-env
+  <<: *production-jwt-env
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must come from secret storage}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must come from secret storage}
+
+services:
+  mysql:
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must come from secret storage}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must come from secret storage}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u\"$${MYSQL_USER}\" -p\"$${MYSQL_PASSWORD}\""]
+
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD must come from secret storage}
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must come from secret storage}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must come from secret storage}
+
+  gateway:
+    environment:
+      <<: *production-jwt-env
+      CORS_ALLOWED_ORIGIN_PATTERNS: ${CORS_ALLOWED_ORIGIN_PATTERNS:?CORS_ALLOWED_ORIGIN_PATTERNS must be an exact HTTPS origin}
+
+  user-service:
+    environment:
+      <<: *production-service-env
+      JWT_PRIVATE_KEY_LOCATION: file:/run/secrets/gray_jwt_private_key
+      AUTH_COOKIE_SECURE: "true"
+
+  content-service:
+    environment: *production-service-env
+
+  shop-service:
+    environment: *production-service-env
+
+  inventory-service:
+    environment: *production-service-env
+
+  order-service:
+    environment: *production-service-env
+
+  payment-service:
+    environment: *production-service-env
+
+  ingestion-service:
+    environment: *production-service-env
+
+secrets:
+  gray_jwt_private_key:
+    file: ${JWT_PRIVATE_KEY_FILE:?JWT_PRIVATE_KEY_FILE must point to a deployment-managed secret file}
+  gray_jwt_public_key:
+    file: ${JWT_PUBLIC_KEY_FILE:?JWT_PUBLIC_KEY_FILE must point to the matching public key file}

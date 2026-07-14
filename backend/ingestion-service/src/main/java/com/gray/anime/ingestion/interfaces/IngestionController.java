@@ -24,11 +24,6 @@ public class IngestionController {
         return ApiResponse.ok(service.tasks(page, size));
     }
 
-    @PostMapping("/demo")
-    ApiResponse<ImportTaskView> demo() {
-        return ApiResponse.ok(service.importDemo());
-    }
-
     @PostMapping("/json")
     ApiResponse<ImportTaskView> json(@RequestBody BulkImportRequest request) {
         return ApiResponse.ok(service.importBulk("JSON", "admin-json-upload", request));

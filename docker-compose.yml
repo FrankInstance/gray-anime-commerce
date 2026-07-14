@@ -7,6 +7,7 @@ x-backend-healthcheck: &backend-healthcheck
 
 x-service-environment: &service-env
   SERVER_PORT: 8080
+  SPRING_PROFILES_ACTIVE: local
   MYSQL_HOST: mysql
   MYSQL_DATABASE: gray_anime
   MYSQL_USER: gray
@@ -125,6 +126,7 @@ services:
         SERVICE_NAME: gateway-service
     environment:
       SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: local
       NACOS_ADDR: nacos:8848
       JAVA_OPTS: "-Xms128m -Xmx256m"
       JWT_ISSUER: gray-auth

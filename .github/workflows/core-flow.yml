@@ -48,7 +48,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Build frontend assets
-        run: npm run build
+        run: npm run build:local
 
       - name: Generate local authentication keys
         run: npm run setup:auth-keys
