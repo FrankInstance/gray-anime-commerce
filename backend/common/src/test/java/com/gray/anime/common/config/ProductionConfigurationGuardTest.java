@@ -66,6 +66,23 @@ class ProductionConfigurationGuardTest {
     }
 
     @Test
+    void userServiceRequiresASeparateLoginThrottleSecret() {
+        MockEnvironment missingSecret = validBase("user-service")
+                .withProperty("MYSQL_PASSWORD", "production-mysql-password")
+                .withProperty("RABBITMQ_PASSWORD", "production-rabbit-password")
+                .withProperty("JWT_PRIVATE_KEY_LOCATION", "file:/run/secrets/jwt-private-key")
+                .withProperty("REDIS_HOST", "redis")
+                .withProperty("AUTH_COOKIE_SECURE", "true");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(missingSecret))
+                .hasMessageContaining("AUTH_LOGIN_THROTTLE_SECRET");
+
+        MockEnvironment weakSecret = validUserEnvironment()
+                .withProperty("AUTH_LOGIN_THROTTLE_SECRET", "too-short");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(weakSecret))
+                .hasMessageContaining("at least 32 characters");
+    }
+
+    @Test
     void demoDeploymentRequiresAnExplicitDemoPaymentOptIn() {
         MockEnvironment demoPayment = validBase("payment-service")
                 .withProperty("MYSQL_PASSWORD", "production-mysql-password")
@@ -118,6 +135,8 @@ class ProductionConfigurationGuardTest {
                 .withProperty("MYSQL_PASSWORD", "production-mysql-password")
                 .withProperty("RABBITMQ_PASSWORD", "production-rabbit-password")
                 .withProperty("JWT_PRIVATE_KEY_LOCATION", "file:/run/secrets/jwt-private-key")
+                .withProperty("REDIS_HOST", "redis")
+                .withProperty("AUTH_LOGIN_THROTTLE_SECRET", "production-login-throttle-secret-2026")
                 .withProperty("AUTH_COOKIE_SECURE", "true");
     }
 

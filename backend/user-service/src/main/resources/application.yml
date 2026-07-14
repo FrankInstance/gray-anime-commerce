@@ -42,6 +42,12 @@ security:
     idle-ttl-seconds: ${AUTH_SESSION_IDLE_TTL_SECONDS:259200}
     refresh-cookie-name: ${AUTH_REFRESH_COOKIE_NAME:gray_refresh}
     cookie-secure: ${AUTH_COOKIE_SECURE:false}
+  login-throttle:
+    account-key-secret: ${AUTH_LOGIN_THROTTLE_SECRET:local-login-throttle-secret-change-me}
+    failure-window-seconds: ${AUTH_LOGIN_FAILURE_WINDOW_SECONDS:86400}
+    max-attempts: ${AUTH_LOGIN_MAX_ATTEMPTS:5}
+    initial-block-seconds: ${AUTH_LOGIN_INITIAL_BLOCK_SECONDS:30}
+    max-block-seconds: ${AUTH_LOGIN_MAX_BLOCK_SECONDS:900}
 
 mybatis-plus:
   configuration:

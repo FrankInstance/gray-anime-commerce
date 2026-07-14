@@ -46,6 +46,8 @@ public class UserApplicationService {
     private final NotificationMessageMapper notificationMapper;
     private final PasswordEncoder passwordEncoder;
     private final AccessTokenIssuer accessTokenIssuer;
+    private final LoginAttemptGuard loginAttemptGuard;
+    private final LoginPasswordVerifier loginPasswordVerifier;
     private final long accessTokenTtlSeconds;
     private final long sessionIdleTtlSeconds;
     private final boolean developmentPasswordReset;
@@ -58,6 +60,8 @@ public class UserApplicationService {
             NotificationMessageMapper notificationMapper,
             PasswordEncoder passwordEncoder,
             AccessTokenIssuer accessTokenIssuer,
+            LoginAttemptGuard loginAttemptGuard,
+            LoginPasswordVerifier loginPasswordVerifier,
             @Value("${security.session.access-token-ttl-seconds:900}") long accessTokenTtlSeconds,
             @Value("${security.session.idle-ttl-seconds:259200}") long sessionIdleTtlSeconds,
             @Value("${security.password-reset.mode:disabled}") String passwordResetMode
@@ -69,6 +73,8 @@ public class UserApplicationService {
         this.notificationMapper = notificationMapper;
         this.passwordEncoder = passwordEncoder;
         this.accessTokenIssuer = accessTokenIssuer;
+        this.loginAttemptGuard = loginAttemptGuard;
+        this.loginPasswordVerifier = loginPasswordVerifier;
         this.accessTokenTtlSeconds = accessTokenTtlSeconds;
         this.sessionIdleTtlSeconds = sessionIdleTtlSeconds;
         if (!Set.of("disabled", "development").contains(passwordResetMode)) {
@@ -100,10 +106,18 @@ public class UserApplicationService {
 
     @Transactional
     public AuthSessionResult login(LoginRequest request) {
-        AppUser user = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, normalizeEmail(request.email())));
-        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        String email = normalizeEmail(request.email());
+        loginAttemptGuard.verifyAllowed(email);
+        AppUser user = userMapper.selectOne(new LambdaQueryWrapper<AppUser>().eq(AppUser::getEmail, email));
+        boolean credentialsMatch = loginPasswordVerifier.matches(
+                request.password(),
+                user == null ? null : user.getPasswordHash()
+        );
+        if (user == null || !credentialsMatch) {
+            loginAttemptGuard.recordFailure(email);
             throw new BizException("BAD_CREDENTIALS", "Email or password is incorrect");
         }
+        loginAttemptGuard.recordSuccess(email);
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new BizException("USER_DISABLED", "User is not active");
         }

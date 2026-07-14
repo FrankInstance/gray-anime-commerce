@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
     @ExceptionHandler(BizException.class)
     ResponseEntity<ApiResponse<Void>> handleBiz(BizException exception) {
-        return ResponseEntity.badRequest().body(ApiResponse.error(exception.code(), exception.getMessage()));
+        return ResponseEntity.status(exception.status()).body(ApiResponse.error(exception.code(), exception.getMessage()));
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, ConstraintViolationException.class})

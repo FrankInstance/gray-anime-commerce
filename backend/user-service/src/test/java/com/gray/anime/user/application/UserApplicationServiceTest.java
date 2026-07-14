@@ -20,6 +20,7 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
@@ -31,7 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +49,8 @@ class UserApplicationServiceTest {
     private final NotificationMessageMapper notificationMapper = mock(NotificationMessageMapper.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final AccessTokenIssuer accessTokenIssuer = mock(AccessTokenIssuer.class);
+    private final LoginAttemptGuard loginAttemptGuard = mock(LoginAttemptGuard.class);
+    private final LoginPasswordVerifier loginPasswordVerifier = mock(LoginPasswordVerifier.class);
     private final UserApplicationService service = new UserApplicationService(
             userMapper,
             authSessionMapper,
@@ -54,6 +59,8 @@ class UserApplicationServiceTest {
             notificationMapper,
             passwordEncoder,
             accessTokenIssuer,
+            loginAttemptGuard,
+            loginPasswordVerifier,
             ACCESS_TTL_SECONDS,
             SESSION_IDLE_TTL_SECONDS,
             "disabled"
@@ -71,7 +78,7 @@ class UserApplicationServiceTest {
     void loginCreatesHashedRefreshSessionWithThreeDayIdleExpiry() {
         AppUser user = activeUser();
         when(userMapper.selectOne(any())).thenReturn(user);
-        when(passwordEncoder.matches("secret123", user.getPasswordHash())).thenReturn(true);
+        when(loginPasswordVerifier.matches("secret123", user.getPasswordHash())).thenReturn(true);
         when(accessTokenIssuer.issue(user.getId(), Set.of("USER"), ACCESS_TTL_SECONDS)).thenReturn("access-token");
 
         LocalDateTime before = LocalDateTime.now().plusSeconds(SESSION_IDLE_TTL_SECONDS - 1);
@@ -87,6 +94,62 @@ class UserApplicationServiceTest {
         assertTrue(!session.getExpiresAt().isBefore(before) && !session.getExpiresAt().isAfter(after));
         assertEquals("access-token", result.tokenResponse().accessToken());
         assertEquals(ACCESS_TTL_SECONDS, result.tokenResponse().expiresIn());
+        verify(loginAttemptGuard).verifyAllowed(user.getEmail());
+        verify(loginAttemptGuard).recordSuccess(user.getEmail());
+        verify(loginAttemptGuard, never()).recordFailure(user.getEmail());
+    }
+
+    @Test
+    void failedLoginIsRecordedWithoutRevealingWhetherTheAccountExists() {
+        when(userMapper.selectOne(any())).thenReturn(null);
+
+        BizException exception = assertThrows(
+                BizException.class,
+                () -> service.login(new LoginRequest("missing@example.com", "wrong-password"))
+        );
+
+        assertEquals("BAD_CREDENTIALS", exception.code());
+        verify(loginAttemptGuard).verifyAllowed("missing@example.com");
+        verify(loginAttemptGuard).recordFailure("missing@example.com");
+        verify(loginPasswordVerifier).matches("wrong-password", null);
+        verifyNoInteractions(authSessionMapper);
+    }
+
+    @Test
+    void wrongPasswordUsesTheSamePublicErrorAndRecordsTheAccountFailure() {
+        AppUser user = activeUser();
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(loginPasswordVerifier.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
+
+        BizException exception = assertThrows(
+                BizException.class,
+                () -> service.login(new LoginRequest(" Reader@Example.com ", "wrong-password"))
+        );
+
+        assertEquals("BAD_CREDENTIALS", exception.code());
+        assertEquals("Email or password is incorrect", exception.getMessage());
+        verify(loginAttemptGuard).verifyAllowed("reader@example.com");
+        verify(loginAttemptGuard).recordFailure("reader@example.com");
+        verify(loginAttemptGuard, never()).recordSuccess(any());
+        verifyNoInteractions(authSessionMapper);
+    }
+
+    @Test
+    void accountThrottleStopsLoginBeforeLookingUpTheUser() {
+        doThrow(new BizException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "LOGIN_RATE_LIMITED",
+                "登录尝试过于频繁，请稍后再试。"
+        )).when(loginAttemptGuard).verifyAllowed("reader@example.com");
+
+        BizException exception = assertThrows(
+                BizException.class,
+                () -> service.login(new LoginRequest("reader@example.com", "secret123"))
+        );
+
+        assertEquals("LOGIN_RATE_LIMITED", exception.code());
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.status());
+        verifyNoInteractions(userMapper, loginPasswordVerifier, authSessionMapper);
     }
 
     @Test
@@ -142,6 +205,8 @@ class UserApplicationServiceTest {
                 notificationMapper,
                 passwordEncoder,
                 accessTokenIssuer,
+                loginAttemptGuard,
+                loginPasswordVerifier,
                 ACCESS_TTL_SECONDS,
                 SESSION_IDLE_TTL_SECONDS,
                 "development"

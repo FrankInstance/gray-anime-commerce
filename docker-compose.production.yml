@@ -38,6 +38,7 @@ services:
       <<: *production-service-env
       JWT_PRIVATE_KEY_LOCATION: file:/run/secrets/gray_jwt_private_key
       AUTH_COOKIE_SECURE: "true"
+      AUTH_LOGIN_THROTTLE_SECRET: ${AUTH_LOGIN_THROTTLE_SECRET:?AUTH_LOGIN_THROTTLE_SECRET must come from secret storage}
 
   content-service:
     environment: *production-service-env
