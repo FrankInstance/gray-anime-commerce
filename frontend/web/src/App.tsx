@@ -734,6 +734,7 @@ export function App() {
   const cartStorageKeyRef = useRef(cartStorageKey(null));
   const cartToastTimer = useRef<number | null>(null);
   const refreshPromise = useRef<Promise<boolean> | null>(null);
+  const pageLeaving = useRef(false);
 
   const isVip = useMemo(() => profile?.roles.includes('VIP') ?? false, [profile]);
   const activeMeta = sections.find((section) => section.key === activeSection) ?? sections[0];
@@ -764,6 +765,7 @@ export function App() {
   }, []);
 
   const refreshSession = useCallback(() => {
+    if (pageLeaving.current) return Promise.resolve(false);
     if (refreshPromise.current) return refreshPromise.current;
     const request = api<AuthResponse>('/api/v1/auth/refresh', { method: 'POST' })
       .then((data) => {
@@ -790,6 +792,21 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const onPageHide = () => {
+      pageLeaving.current = true;
+    };
+    const onPageShow = () => {
+      pageLeaving.current = false;
+    };
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     clearStoredAuth();
     void refreshSession().finally(() => {
@@ -804,6 +821,7 @@ export function App() {
     if (!token || !authReady) return;
 
     const keepAlive = () => {
+      if (pageLeaving.current) return;
       void refreshSession();
     };
     const onVisibilityChange = () => {
@@ -811,12 +829,10 @@ export function App() {
     };
     const timer = window.setInterval(keepAlive, SESSION_KEEPALIVE_INTERVAL_MS);
     document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('focus', keepAlive);
     window.addEventListener('online', keepAlive);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('focus', keepAlive);
       window.removeEventListener('online', keepAlive);
     };
   }, [authReady, refreshSession, token]);
@@ -839,9 +855,11 @@ export function App() {
         if (!active) return;
         setProfile(nextProfile);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active) return;
-        void refreshSession();
+        if (isSessionRejected(error)) {
+          void refreshSession();
+        }
       });
 
     return () => {
