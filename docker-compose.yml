@@ -158,6 +158,7 @@ services:
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
       AUTH_SESSION_IDLE_TTL_SECONDS: ${AUTH_SESSION_IDLE_TTL_SECONDS:-259200}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_LOGIN_THROTTLE_SECRET: ${AUTH_LOGIN_THROTTLE_SECRET:-local-login-throttle-secret-change-me}
     secrets:
       - source: gray_jwt_public_key
         target: gray_jwt_public_key

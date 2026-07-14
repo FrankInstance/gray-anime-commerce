@@ -54,6 +54,8 @@ public class ProductionConfigurationGuard {
         }
         if ("user-service".equals(serviceName)) {
             requireManagedKey(environment, "JWT_PRIVATE_KEY_LOCATION");
+            required(environment, "REDIS_HOST");
+            requireStrongSecret(environment, "AUTH_LOGIN_THROTTLE_SECRET", 32);
             if (!Boolean.parseBoolean(required(environment, "AUTH_COOKIE_SECURE"))) {
                 throw invalid("AUTH_COOKIE_SECURE must be true in the prod profile");
             }
@@ -118,6 +120,13 @@ public class ProductionConfigurationGuard {
         String value = required(environment, name).replace('\\', '/').toLowerCase(Locale.ROOT);
         if (value.contains("deploy/keys/") || value.contains("access-token-private.pem") && value.startsWith("file:./")) {
             throw invalid(name + " must reference a production-managed key");
+        }
+    }
+
+    private static void requireStrongSecret(Environment environment, String name, int minimumLength) {
+        String value = required(environment, name);
+        if (value.length() < minimumLength || value.toLowerCase(Locale.ROOT).contains("local-login-throttle")) {
+            throw invalid(name + " must be supplied by production secret storage and contain at least " + minimumLength + " characters");
         }
     }
 
