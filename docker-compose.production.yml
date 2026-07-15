@@ -4,6 +4,7 @@ x-production-jwt-environment: &production-jwt-env
   JWT_AUDIENCE: ${JWT_AUDIENCE:?JWT_AUDIENCE must be supplied by deployment configuration}
   JWT_KEY_ID: ${JWT_KEY_ID:?JWT_KEY_ID must be supplied by deployment configuration}
   JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+  CONSOLE_LOG_STRUCTURED_FORMAT: logstash
 
 x-production-service-environment: &production-service-env
   <<: *production-jwt-env

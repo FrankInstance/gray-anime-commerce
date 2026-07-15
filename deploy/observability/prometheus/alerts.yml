@@ -1,0 +1,56 @@
+groups:
+  - name: gray-commerce
+    rules:
+      - alert: GrayServiceDown
+        expr: up{job="gray-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gray service is unavailable"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for more than two minutes."
+
+      - alert: GrayHighServerErrorRate
+        expr: |
+          (
+            sum by (application) (rate(http_server_requests_seconds_count{status=~"5..",uri!~"/actuator.*"}[5m]))
+            /
+            clamp_min(sum by (application) (rate(http_server_requests_seconds_count{uri!~"/actuator.*"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx rate in {{ $labels.application }}"
+          description: "More than 5% of requests have failed for five minutes."
+
+      - alert: GrayHighRequestLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (application, le) (rate(http_server_requests_seconds_bucket{uri!~"/actuator.*"}[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency in {{ $labels.application }}"
+          description: "The five-minute p95 request latency has exceeded two seconds for ten minutes."
+
+      - alert: GrayLoginThrottleSpike
+        expr: sum(increase(http_server_requests_seconds_count{application="user-service",uri="/api/v1/auth/login",status="429"}[10m])) > 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Login throttling spike"
+          description: "More than 20 account login requests were throttled in ten minutes."
+
+      - alert: GrayPaymentServerErrors
+        expr: sum(increase(http_server_requests_seconds_count{application="payment-service",status=~"5.."}[10m])) > 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Payment service errors"
+          description: "Payment operations returned multiple server errors in ten minutes."

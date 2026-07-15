@@ -33,11 +33,8 @@ public class GatewayAuthFilter implements GlobalFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String requestedTraceId = exchange.getRequest().getHeaders().getFirst(TraceIds.HEADER);
-        String traceId = requestedTraceId == null || requestedTraceId.isBlank()
-                ? TraceIds.newTraceId()
-                : requestedTraceId;
+        String traceId = TraceIds.resolve(requestedTraceId);
         String path = exchange.getRequest().getPath().pathWithinApplication().value();
-        exchange.getResponse().getHeaders().set(TraceIds.HEADER, traceId);
 
         try {
             ServerHttpRequest.Builder request = exchange.getRequest().mutate()

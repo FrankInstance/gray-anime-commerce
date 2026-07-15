@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: gray-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - gateway:8080
+          - user-service:8080
+          - content-service:8080
+          - shop-service:8080
+          - inventory-service:8080
+          - order-service:8080
+          - payment-service:8080
+          - ingestion-service:8080

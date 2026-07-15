@@ -21,6 +21,7 @@ x-service-environment: &service-env
   JWT_AUDIENCE: gray-api
   JWT_KEY_ID: gray-access-2026-01
   JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+  LOG_LEVEL_PATTERN: "%5p [traceId=%X{traceId:-}]"
   JAVA_OPTS: "-Xms128m -Xmx256m"
 
 x-public-key-secrets: &public-key-secrets
@@ -134,6 +135,7 @@ services:
       JWT_AUDIENCE: gray-api
       JWT_KEY_ID: gray-access-2026-01
       JWT_PUBLIC_KEY_LOCATION: file:/run/secrets/gray_jwt_public_key
+      LOG_LEVEL_PATTERN: "%5p [traceId=%X{traceId:-}]"
       CORS_ALLOWED_ORIGIN_PATTERNS: http://localhost:*,http://127.0.0.1:*
     secrets: *public-key-secrets
     ports:

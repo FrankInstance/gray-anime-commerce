@@ -1,138 +1,60 @@
 # Gray Project Context
 
-更新时间：2026-06-28
+更新时间：2026-07-15
 
 ## 使用约定
 
-- 用户要求：从现在开始，每当窗口上下文被压缩、或我察觉到上下文即将丢失/已经被摘要替换时，把重要内容整理进本文件。
-- 位置：项目根目录 `CONTEXT.md`。
-- 本文件用于让后续会话快速接上，不替代 README、代码、计划文档或实际提交记录。
+- 每当对话上下文被压缩或摘要替换时，把继续工作所需的重要内容整理到本文件。
+- 中文文本、SQL 种子数据和页面文案必须保持 UTF-8；终端出现疑似乱码时必须继续核对文件、接口和运行数据。
+- 项目已进入收尾阶段，认证、订单、支付、库存和用户资产默认按正式项目标准实现并覆盖失败及越权路径。
 
-## 项目概况
+## 当前状态
 
-- 项目：二次元综合电商平台 MVP。
-- 用户端：React + TypeScript，位于 `frontend/web`。
-- 后台端：React + TypeScript，位于 `frontend/admin`。
-- 后端：Spring Boot 3.5.x + Spring Cloud 2025.0.x + Spring Cloud Alibaba/Nacos/Sentinel。
-- 部署：Docker Compose 单机部署。
-- 数据与中间件：MySQL、Redis、RabbitMQ、MinIO、Nacos。
-- 内容来源原则：支持后台录入/JSON/CSV/Excel 导入授权内容；不实现盗版正文/漫画页抓取。
+- 技术栈：React、TypeScript、Vite、Java 21、Spring Boot 3.5.x、Spring Cloud 2025.0.x、Spring Cloud Alibaba、MySQL、Redis、RabbitMQ、MinIO、Nacos。
+- 部署：单机 Docker Compose；`local`、`test`、`prod`、`demo` Profile 已分离。
+- 用户端核心流程已完成：注册与登录、阅读进度、章节积分兑换、充值与 Demo 支付、VIP、购物车、限购、订单和个人中心。
+- 认证已使用 RS256 Access Token 与 HttpOnly Refresh Token；网页保持打开时可续期，关闭后连续 72 小时未使用需要重新登录。
+- 公开作品集环境使用 `demo` Profile，沿用生产安全校验，只开放明确标注且不产生真实扣款的 Demo 支付；非管理员演示数据每六个月清理一次。
+- GitHub Actions 使用 Java 21、Node.js 20、Chromium 和 Docker Compose 执行核心回归。
 
-## 当前核心体验
+## 当前工作分支
 
-- 用户端顶部主分区：`轻小说`、`漫画`、`会员购`。
-- 默认进入轻小说分区。
-- 搜索必须先属于当前分区：
-  - 轻小说/漫画走 `/api/v1/works?type=NOVEL|MANGA&page=1&size=10&keyword=...`
-  - 会员购走 `/api/v1/products?page=1&size=10&keyword=...`
-- 搜索结果纵向排列，每页最多 10 条，显示封面、标题、简介。
-- 点击作品封面或简介进入 `/works/{id}`。
-- 点击商品封面或简介进入 `/products/{id}`。
-- 作品详情页不再显示黑色正文预览框。
-- 点击章节“阅读”进入独立阅读页：`/works/{workId}/chapters/{chapterId}/read`。
-- 阅读页包含章节目录、正文区域、上一章/下一章、返回作品、目录详情。
-- 未登录读取付费章节时，前端直接显示“章节暂未解锁”和“兑换章节”，避免控制台出现无意义接口错误。
-- 用户端分区页顶部黄色状态提示条已移除，不再展示“已切换到.../未登录”这类横幅提示。
-- 用户端中部三块大分区选择栏已移除；分区切换只保留顶部导航，搜索栏直接跟在 hero 后面。
-- 用户端首页 hero 只保留英文分区 eyebrow 和 `Gray Shelf` 标题，不显示中文说明段落。
-- 右上角账号菜单支持 hover 展开，鼠标从“登录/头像”移动到下拉菜单时不应立即消失；通过短延迟关闭和隐形 hover 桥保证可点击。
-- 登录/注册弹窗为邮箱账号面板；不做二维码、短信或第三方登录。视觉要贴近站点整体的纸张底色、黑色线框和红色硬投影风格。
-- 用户端不显示“每页最多 10 个”这类实现说明，分页逻辑保留但不作为提示文案展示。
+- 分支：`codex/production-observability`。
+- 目标：补齐生产可观测性、MySQL 备份恢复演练和部署后 Demo 冒烟测试。
+- 当前改动尚未提交或合并。
 
-## 最近重要文件
+## 本轮已实现
 
-- `frontend/web/src/App.tsx`
-  - 用户端主要页面、路由、账号弹窗、分区搜索、作品/商品详情、阅读页逻辑。
-- `frontend/web/src/styles.css`
-  - 用户端视觉样式，包括分区搜索、结果列表、详情页、阅读器布局。
-- `backend/content-service/src/main/java/com/gray/anime/content/application/ContentApplicationService.java`
-  - 作品分页、搜索、章节阅读权限。
-- `backend/shop-service/src/main/java/com/gray/anime/shop/application/ShopApplicationService.java`
-  - 商品分页、搜索、详情。
-- `backend/shop-service/src/main/java/com/gray/anime/shop/interfaces/ShopController.java`
-  - 商品公开接口。
-- `pom.xml`
-  - Maven 版本和 MyBatis-Plus 分页相关依赖管理。
-- `docker-compose.yml`
-  - 本地容器编排。
+- 网关统一规范化、返回并记录 `X-Trace-Id`；所有服务将 Trace ID 放入 MDC。
+- 后端服务开放内部 `/actuator/prometheus`，并添加统一 `application` 指标标签和 HTTP 延迟直方图。
+- 生产日志使用 Logstash JSON；本地日志级别前缀显示 Trace ID。
+- 新增可选 `docker-compose.observability.yml`，包含 Prometheus、Grafana、运维看板和告警规则。
+- 新增一致性 MySQL 备份脚本、SHA-256 校验、隔离数据库恢复验证及 systemd 定时任务模板。
+- 新增公开 Demo 部署冒烟脚本，覆盖注册、个人信息、Refresh Token 轮换、退出登录、重新登录、积分订单、Demo 支付和余额确认。
+- CI 增加运维资产校验；运维配置测试已通过，common/gateway 单元测试已通过。
 
-## 本地运行状态
+## 本轮验证结果
 
-最近一次已执行：
+- 本地、生产、Demo 与监控 Compose 组合均可解析；Prometheus `promtool` 确认配置和 5 条告警规则有效。
+- 所有后端与中间件容器健康；Prometheus 8/8 targets 为 up，Grafana 健康且看板 8 条 PromQL 均可执行，当前无触发告警。
+- Trace ID 真实请求验证通过：响应只返回一个安全编号，网关日志可按相同编号检索。
+- MySQL 一致性备份、SHA-256、逐表 `CHECK TABLE`、22 张表结构对比、核心表检查和临时库自动清理均通过；缺失校验和会被拒绝。
+- Demo 部署冒烟通过：注册、Refresh Token 轮换、退出重登、积分订单、Demo 支付确认和余额到账均正常。
+- 核心回归通过：Java 后端测试、11 条网关 API 流程、4 条 Playwright 页面流程。
+- 40 个以上变更文本文件按严格 UTF-8 解码且未发现指定 mojibake 特征；`git diff --check` 通过。
+- Prometheus 与 Grafana 使用只读根文件系统、`cap_drop=ALL`、`no-new-privileges`；Grafana 后台插件安装已关闭，当前全栈日志无 ERROR 或异常堆栈。
 
-```powershell
-docker compose up -d
-```
-
-访问地址：
+## 常用地址
 
 - 用户端：http://127.0.0.1/
 - 网关/API：http://127.0.0.1:8080
+- Prometheus：http://127.0.0.1:9090
+- Grafana：http://127.0.0.1:3000
 - Nacos：http://127.0.0.1:8848/nacos
-- RabbitMQ：http://127.0.0.1:15672
-- MinIO：http://127.0.0.1:9001
 
-最近验证：
+## 关键文档
 
-- 前端首页 `200 OK`。
-- `/api/v1/works?type=NOVEL&page=1&size=1` 返回正常 JSON。
-- MySQL 为 healthy。
-- `gateway-service` 和 `content-service` 已在 Nacos 注册成功。
-
-## 启动注意事项
-
-- 如果 Docker Desktop 没启动，`docker compose up -d` 会报找不到 `dockerDesktopLinuxEngine`。
-- Nacos 首次启动较慢，Spring 服务可能因为 `Client not connected, current status: STARTING` 注册失败。
-- 解决方式：等 Nacos 完全启动后重启 Spring 服务：
-
-```powershell
-docker compose restart gateway content-service user-service shop-service inventory-service order-service payment-service ingestion-service
-```
-
-- PowerShell 里 URL 参数包含 `&` 时必须加引号，例如：
-
-```powershell
-curl.exe -s "http://127.0.0.1/api/v1/works?type=NOVEL&page=1&size=1"
-```
-
-## 构建命令
-
-前端构建：
-
-```powershell
-npm run build -w frontend/web
-```
-
-后端 Maven 打包：
-
-```powershell
-mvn -q "-Dmaven.repo.local=C:\Users\16076\Documents\Gray\.m2\repository" -DskipTests package
-```
-
-重建前端容器：
-
-```powershell
-docker compose up --build -d frontend
-```
-
-重建核心服务：
-
-```powershell
-docker compose up --build -d frontend gateway content-service shop-service
-```
-
-## 后续偏好
-
-- 用户希望更真实的用户体验，避免“演示按钮/假框/黑框预览”式界面。
-- 前端应继续遵循 `frontend-design` 和 `frontend-ui-ux` 的要求；实际可用优先，不做空洞说明页。
-- 用户端不显示后台跳转入口。
-- VIP、每日签到放在右上角头像菜单。
-- 登录按钮打开登录/注册弹窗，不保留演示账号快捷入口。
-- VIP 下单只创建订单并显示支付号，不自动模拟支付成功。
-- 章节权限、VIP 折扣、限量规则在用户实际购买/兑换/下单时提示，不放在搜索侧栏里。
-
-## 下次接手建议
-
-- 如继续做阅读器，可补：字体大小、行距、阅读主题、滚动进度、漫画分页/双页模式、章节购买后自动刷新阅读权限。
-- 如继续做商品页，可补：SKU 选择、库存状态、加入购物车、限时开售倒计时。
-- 如继续做后台，可补：作品/章节导入、商品维护、订单看板、日流量和营业额统计。
+- 根目录 `README.md`：项目启动、认证、环境和 CI 概览。
+- `deploy/production/README.md`：生产与公开 Demo 部署要求。
+- `deploy/operations/README.md`：监控、备份恢复和部署冒烟操作手册。
+- `AGENTS.md`：产品文案、编码安全和正式项目标准。
