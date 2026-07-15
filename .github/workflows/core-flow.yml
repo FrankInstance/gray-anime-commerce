@@ -44,14 +44,38 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Generate local authentication keys
+        run: npm run setup:auth-keys
+
+      - name: Validate operations assets
+        env:
+          GRAFANA_ADMIN_PASSWORD: ci-observability-password
+          JWT_ISSUER: https://demo.example.com
+          JWT_AUDIENCE: gray-api
+          JWT_KEY_ID: ci-validation-key
+          JWT_PRIVATE_KEY_FILE: ./deploy/keys/access-token-private.pem
+          JWT_PUBLIC_KEY_FILE: ./deploy/keys/access-token-public.pem
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_PASSWORD: ci-app-password
+          RABBITMQ_PASSWORD: ci-rabbit-password
+          MINIO_ROOT_USER: ci-minio-user
+          MINIO_ROOT_PASSWORD: ci-minio-password
+          AUTH_LOGIN_THROTTLE_SECRET: ci-validation-secret-with-at-least-32-characters
+          CORS_ALLOWED_ORIGIN_PATTERNS: https://demo.example.com
+        run: |
+          npm run test:operations
+          node --check deploy/operations/demo-smoke.mjs
+          bash -n deploy/operations/mysql-backup.sh
+          bash -n deploy/operations/mysql-restore-verify.sh
+          docker compose -f docker-compose.yml -f docker-compose.observability.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.observability.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.observability.yml config --quiet
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Build frontend assets
         run: npm run build:local
-
-      - name: Generate local authentication keys
-        run: npm run setup:auth-keys
 
       - name: Package backend services
         run: mvn --batch-mode --no-transfer-progress -DskipTests package

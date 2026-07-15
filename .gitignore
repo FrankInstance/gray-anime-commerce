@@ -18,6 +18,7 @@ test-results/
 
 data/
 uploads/
+backups/
 *.pid
 *-dev.log
 *-dev.err.log

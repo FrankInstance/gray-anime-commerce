@@ -49,6 +49,29 @@ The Demo user service also enables a persistent cleanup schedule. Its first star
 
 `PAYMENT_DEMO_ENABLED=true` and `DEMO_CLEANUP_ENABLED=true` are mandatory explicit opt-ins in the Demo overlay. Production rejects both Demo payment and Demo cleanup.
 
-Do not put real values in a tracked `.env` file. This overlay does not replace host firewalling, TLS termination, database backups, Nacos hardening, or a managed secret service.
+Do not put real values in a tracked `.env` file. This overlay does not replace host firewalling, TLS termination, Nacos hardening, or a managed secret service.
 
 Use a fresh production database and volume. A database previously started with the `local` profile may already contain seeded development accounts, and changing profiles does not delete existing rows.
+
+## Observability overlay
+
+Add `docker-compose.observability.yml` last to run Prometheus and Grafana beside either production or Demo. `GRAFANA_ADMIN_PASSWORD` is mandatory and must come from the deployment secret store.
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.observability.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.observability.yml up -d --build --wait
+```
+
+For a public Demo, keep `docker-compose.demo.yml` before the observability overlay:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.observability.yml up -d --build --wait
+```
+
+Prometheus and Grafana bind to `127.0.0.1` by default. Do not publish them directly to the Internet. Reach them through an SSH tunnel, VPN, or an authenticated reverse proxy. Prometheus evaluates the bundled alert rules locally; external notifications require a separately secured Alertmanager integration.
+
+Every backend exposes `/actuator/prometheus` only on the internal Compose network. Production console logs use Logstash JSON and include MDC fields such as `traceId`; use the matching `X-Trace-Id` response header to follow a request through gateway and service logs.
+
+## Backup and deployment verification
+
+The repository includes a consistent MySQL backup, an isolated restore verification, systemd timer templates, and a write-enabled Demo smoke test. Follow [`../operations/README.md`](../operations/README.md) before publishing the deployment. A backup kept only on the application host is not disaster recovery; copy encrypted backups to independent storage and test restoration regularly.

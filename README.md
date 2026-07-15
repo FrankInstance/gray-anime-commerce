@@ -28,6 +28,8 @@ frontend/
 deploy/
   mysql/
   nginx/
+  observability/
+  operations/
 ```
 
 ## Quick Start
@@ -80,6 +82,20 @@ npm run test:core:web
 - 在 GitHub Actions 页面手动触发。
 
 CI 使用 Java 21、Node.js 20、Chromium 和 Docker Compose。失败时会保留 7 天的容器日志、Playwright 截图和 trace。
+
+## Observability And Operations
+
+生产与公开 Demo 环境可以叠加 `docker-compose.observability.yml`，启用 Prometheus 指标采集、告警规则和 Grafana 运维看板。后端响应会返回 `X-Trace-Id`；本地日志会显示该编号，生产日志使用包含 `traceId` 的结构化 JSON，方便串联一次请求经过的服务。
+
+```powershell
+$env:GRAFANA_ADMIN_PASSWORD = '<从 Secret 注入的独立密码>'
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up -d --wait
+```
+
+- Prometheus：`http://127.0.0.1:9090`
+- Grafana：`http://127.0.0.1:3000`
+
+备份、恢复演练、部署冒烟测试和生产定时任务的完整说明见 [`deploy/operations/README.md`](deploy/operations/README.md)。生产与公开 Demo 的配置说明见 [`deploy/production/README.md`](deploy/production/README.md)。
 
 ## Authentication
 

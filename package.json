@@ -15,7 +15,9 @@
     "test:core:backend": "mvn -pl backend/gateway-service,backend/user-service,backend/order-service,backend/payment-service,backend/ingestion-service -am test",
     "test:core:api": "node --test --test-concurrency=1 tests/core-flow-api.test.mjs",
     "test:core:web": "playwright test",
-    "test:core": "npm run test:core:backend && npm run test:core:api && npm run test:core:web"
+    "test:core": "npm run test:core:backend && npm run test:core:api && npm run test:core:web",
+    "test:operations": "node --test tests/operations-config.test.mjs",
+    "smoke:demo": "node deploy/operations/demo-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0"
