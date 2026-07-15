@@ -20,6 +20,14 @@ Required non-secret deployment identity values:
 - `JWT_KEY_ID`
 - `CORS_ALLOWED_ORIGIN_PATTERNS` as one or more exact HTTPS origins
 
+On a new single-host Ubuntu deployment, generate the key pair and protected environment file directly on the server. Existing secrets are preserved:
+
+```bash
+sudo bash deploy/production/provision-secrets.sh demo.example.com
+```
+
+The resulting `/etc/gray/gray.env` is readable only by root. Load it immediately before invoking Compose; never copy its contents into the repository.
+
 Build the browser assets with `npm run build`; production builds use the real payment-session boundary. Then validate the resolved deployment before starting it:
 
 ```powershell
@@ -38,6 +46,14 @@ npm run build:demo
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml up -d --build --wait
 ```
+
+For a public single-host deployment, set `PUBLIC_DOMAIN` to a DNS name that resolves to the host and add the public overlay last:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.public.yml up -d --build --wait
+```
+
+The public overlay terminates HTTPS with Caddy and removes every direct host port from MySQL, Redis, RabbitMQ, Nacos, MinIO, the gateway, and the frontend. Only Caddy publishes ports 80 and 443. Keep SSH restricted separately with the cloud security group and host firewall.
 
 `docker-compose.demo.yml` switches every backend service to the `demo` profile and explicitly enables the Demo payment provider. The application refuses to start if Demo payment is combined with `prod`, `local`, or `test`. The legacy `mock-confirm` endpoint is not registered in a public Demo deployment.
 

@@ -85,6 +85,30 @@ test('systemd timers use hardened services without relying on executable file mo
   }
 });
 
+test('public deployment exposes only the TLS reverse proxy', async () => {
+  const compose = await read('docker-compose.public.yml');
+  const caddy = await read('deploy/caddy/Caddyfile');
+
+  assert.equal((compose.match(/ports: !reset \[\]/g) ?? []).length, 7);
+  assert.match(compose, /PUBLIC_DOMAIN: \$\{PUBLIC_DOMAIN:\?PUBLIC_DOMAIN must be supplied/);
+  assert.match(compose, /- "80:80"/);
+  assert.match(compose, /- "443:443"/);
+  assert.match(caddy, /^\{\$PUBLIC_DOMAIN\}/m);
+  assert.match(caddy, /^www\.\{\$PUBLIC_DOMAIN\}/m);
+  assert.match(caddy, /redir https:\/\/\{\$PUBLIC_DOMAIN\}\{uri\} permanent/);
+  assert.match(caddy, /reverse_proxy frontend:80/);
+});
+
+test('production secret provisioning is idempotent and keeps values off disk until runtime', async () => {
+  const script = await read('deploy/production/provision-secrets.sh');
+
+  assert.match(script, /set -Eeuo pipefail/);
+  assert.match(script, /openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072/);
+  assert.match(script, /already exists; existing deployment secrets were preserved/);
+  assert.match(script, /install -m 0600 "\$TEMP_ENV" "\$ENV_FILE"/);
+  assert.doesNotMatch(script, /gray_pass|root_pass|minioadmin/);
+});
+
 test('all application services expose Prometheus and request histograms', async () => {
   for (const service of [
     'gateway-service',
