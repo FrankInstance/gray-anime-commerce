@@ -94,6 +94,76 @@ test('forgot password resets credentials and returns to login', async ({ page })
   await expect(page.locator('.accountTrigger')).toContainText(account.username);
 });
 
+test('AI assistant streams catalog results, adds a real SKU, and clears on reload', async ({ page }) => {
+  const { auth } = await register(page.request, 'browser-assistant');
+  const productResponse = await page.request.get(`${API_BASE_URL}/api/v1/products?page=1&size=20`, {
+    headers: { Authorization: `Bearer ${auth.accessToken}` }
+  });
+  expect(productResponse.ok()).toBeTruthy();
+  const products = await productResponse.json() as ApiEnvelope<{
+    items: Array<{
+      id: number;
+      title: string;
+      productType: string;
+      description: string;
+      coverUrl: string;
+      limited: boolean;
+      skus: Array<{ id: number; skuName: string; priceCents: number; vipPriceCents: number }>;
+    }>;
+  }>;
+  const product = products.data.items.find((item) => item.skus.length === 1);
+  expect(product).toBeTruthy();
+
+  await page.route('**/api/v1/assistant/status', (route) => route.fulfill({
+    contentType: 'application/json; charset=utf-8',
+    body: JSON.stringify({ code: 'OK', message: 'success', data: { available: true }, traceId: 'test' })
+  }));
+  await page.route('**/api/v1/assistant/messages', (route) => {
+    const reference = {
+      kind: 'PRODUCT',
+      key: `PRODUCT:${product!.id}`,
+      id: product!.id,
+      title: product!.title,
+      subtitle: product!.productType,
+      description: product!.description,
+      coverUrl: product!.coverUrl,
+      limited: product!.limited,
+      skus: product!.skus,
+      source: null
+    };
+    const body = [
+      'event: ready\ndata: {"status":"streaming"}',
+      'event: delta\ndata: {"text":"找到一件符合条件的商品。"}',
+      `event: references\ndata: ${JSON.stringify({ items: [reference] })}`,
+      'event: done\ndata: {"status":"complete"}',
+      ''
+    ].join('\n\n');
+    return route.fulfill({ status: 200, contentType: 'text/event-stream; charset=utf-8', body });
+  });
+
+  await page.goto('/');
+  await expect(page.locator('.accountTrigger')).toContainText(auth.profile.username);
+  await page.getByRole('button', { name: '打开 AI 客服' }).click();
+  const assistant = page.getByRole('dialog', { name: 'AI 客服' });
+  await assistant.getByRole('button', { name: '搜索限定商品' }).click();
+  await expect(assistant.getByText('找到一件符合条件的商品。')).toBeVisible();
+  await expect(assistant.getByText(product!.title)).toBeVisible();
+  await assistant.getByRole('button', { name: '加入购物车' }).click();
+  await expect(page.getByRole('status')).toContainText('已加入购物车');
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '打开 AI 客服' }).click();
+  const mobilePanel = page.getByRole('dialog', { name: 'AI 客服' });
+  await expect(mobilePanel.getByText('想找什么？')).toBeVisible();
+  await expect(mobilePanel.getByText('找到一件符合条件的商品。')).toHaveCount(0);
+  const bounds = await mobilePanel.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBe(0);
+  expect(Math.round(bounds!.width)).toBe(390);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(845);
+});
+
 test('cart selection controls checkout and demo payment completes the order', async ({ page, request }) => {
   const { auth } = await register(page.request, 'browser-cart');
   await page.goto('/');
@@ -119,7 +189,7 @@ test('cart selection controls checkout and demo payment completes the order', as
   await expect(checkout).toBeEnabled();
 
   await checkout.click();
-  await expect(cart.getByText('订单已创建，请确认支付。')).toBeVisible();
+  await expect(cart.getByText('订单已创建，请确认支付。')).toBeVisible({ timeout: 15_000 });
   await cart.getByRole('button', { name: '模拟支付' }).click();
 
   await expect(cart).toBeHidden();
@@ -135,6 +205,14 @@ test('cart selection controls checkout and demo payment completes the order', as
 
 test('reader scroll position is saved and restored after reload', async ({ page, request }) => {
   const { auth } = await register(page.request, 'browser-reader');
+  const failedProgressStatuses: number[] = [];
+  page.on('response', (response) => {
+    if (response.request().method() === 'PUT'
+      && response.url().endsWith('/api/v1/reading/progress')
+      && !response.ok()) {
+      failedProgressStatuses.push(response.status());
+    }
+  });
   await page.goto('/works/1/chapters/1/read');
 
   const article = page.locator('.readerArticle');
@@ -160,7 +238,8 @@ test('reader scroll position is saved and restored after reload', async ({ page,
   expect(actualPercent).toBeGreaterThanOrEqual(requestedPercent - 1);
   expect(actualPercent).toBeLessThanOrEqual(requestedPercent + 1);
   const saveResponse = await progressSaved;
-  expect(saveResponse.ok()).toBeTruthy();
+  expect(saveResponse.ok(),
+    `progress save failed: ${saveResponse.status()} ${await saveResponse.text()}`).toBeTruthy();
 
   const progressResponse = await request.get(`${API_BASE_URL}/api/v1/chapters/1/reader`, {
     headers: { Authorization: `Bearer ${auth.accessToken}` }
@@ -183,4 +262,5 @@ test('reader scroll position is saved and restored after reload', async ({ page,
   });
   expect(restoredPercent).toBeGreaterThanOrEqual(progressEnvelope.data.progressPercent - 3);
   expect(restoredPercent).toBeLessThanOrEqual(progressEnvelope.data.progressPercent + 3);
+  expect(failedProgressStatuses).toEqual([]);
 });

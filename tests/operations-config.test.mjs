@@ -11,7 +11,7 @@ test('Grafana dashboard is valid and covers the operational core', async () => {
   assert.ok(dashboard.panels.length >= 8);
   const titles = new Set(dashboard.panels.map((panel) => panel.title));
   for (const title of [
-    'Healthy services / 8',
+    'Healthy services / 9',
     '5xx rate',
     'Login throttles / 1h',
     'Payments confirmed / 1h',
@@ -35,7 +35,8 @@ test('Prometheus scrapes every application service and defines core alerts', asy
     'inventory-service',
     'order-service',
     'payment-service',
-    'ingestion-service'
+    'ingestion-service',
+    'assistant-service'
   ]) {
     assert.match(config, new RegExp(`- ${service}:8080`));
   }
@@ -89,7 +90,7 @@ test('public deployment exposes only the TLS reverse proxy', async () => {
   const compose = await read('docker-compose.public.yml');
   const caddy = await read('deploy/caddy/Caddyfile');
 
-  assert.equal((compose.match(/ports: !reset \[\]/g) ?? []).length, 7);
+  assert.equal((compose.match(/ports: !reset \[\]/g) ?? []).length, 8);
   assert.match(compose, /PUBLIC_DOMAIN: \$\{PUBLIC_DOMAIN:\?PUBLIC_DOMAIN must be supplied/);
   assert.match(compose, /- "80:80"/);
   assert.match(compose, /- "443:443"/);
@@ -118,10 +119,22 @@ test('all application services expose Prometheus and request histograms', async 
     'inventory-service',
     'order-service',
     'payment-service',
-    'ingestion-service'
+    'ingestion-service',
+    'assistant-service'
   ]) {
     const config = await read(`backend/${service}/src/main/resources/application.yml`);
     assert.match(config, /include: health,info,prometheus/);
     assert.match(config, /http\.server\.requests: true/);
   }
+});
+
+test('AI deployment keeps the provider key in an explicit secret overlay', async () => {
+  const compose = await read('docker-compose.ai.yml');
+  const application = await read('backend/assistant-service/src/main/resources/application.yml');
+
+  assert.match(compose, /AI_API_KEY_FILE: \/run\/secrets\/gray_ai_api_key/);
+  assert.match(compose, /AI_API_KEY_FILE must point to a deployment-managed secret file/);
+  assert.doesNotMatch(compose, /sk-[A-Za-z0-9]{8,}/);
+  assert.match(application, /enabled: \$\{AI_ENABLED:false\}/);
+  assert.match(application, /api-key: \$\{AI_API_KEY:disabled\}/);
 });

@@ -1,0 +1,73 @@
+server:
+  port: ${SERVER_PORT:8088}
+  shutdown: graceful
+  tomcat:
+    connection-timeout: 35s
+
+spring:
+  application:
+    name: assistant-service
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        enabled: ${NACOS_ENABLED:true}
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 3000
+            read-timeout: 5000
+  ai:
+    openai:
+      api-key: ${AI_API_KEY:disabled}
+      base-url: ${AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      chat:
+        completions-path: ${AI_CHAT_COMPLETIONS_PATH:/chat/completions}
+        options:
+          model: ${AI_CHAT_MODEL:qwen-plus}
+      embedding:
+        embeddings-path: ${AI_EMBEDDINGS_PATH:/embeddings}
+        options:
+          model: ${AI_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
+gray:
+  ai:
+    enabled: ${AI_ENABLED:false}
+    api-key: ${AI_API_KEY:disabled}
+    chat-model: ${AI_CHAT_MODEL:qwen-plus}
+    enable-thinking: ${AI_ENABLE_THINKING:false}
+    daily-limit: ${AI_DAILY_LIMIT:30}
+    max-message-length: 500
+    max-history-messages: 20
+    max-history-characters: 6000
+    max-output-tokens: 800
+    timeout-seconds: 30
+    rag-top-k: 4
+    rag-similarity-threshold: 0.65
+    qdrant:
+      host: ${QDRANT_HOST:127.0.0.1}
+      port: ${QDRANT_GRPC_PORT:6334}
+      collection-name: ${QDRANT_COLLECTION:gray_assistant_knowledge_v1}
+      use-tls: ${QDRANT_USE_TLS:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        gray.assistant.duration: true

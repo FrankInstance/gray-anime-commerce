@@ -20,6 +20,12 @@ Required non-secret deployment identity values:
 - `JWT_KEY_ID`
 - `CORS_ALLOWED_ORIGIN_PATTERNS` as one or more exact HTTPS origins
 
+AI is disabled by default. When it is enabled, also provide:
+
+- `AI_API_KEY_FILE`, pointing to a root-readable file outside the repository
+- `AI_BASE_URL`, the exact HTTPS OpenAI-compatible endpoint for the selected Model Studio workspace
+- optional `AI_CHAT_MODEL`, `AI_ENABLE_THINKING`, and `AI_EMBEDDING_MODEL` overrides
+
 On a new single-host Ubuntu deployment, generate the key pair and protected environment file directly on the server. Existing secrets are preserved:
 
 ```bash
@@ -58,6 +64,17 @@ The public overlay terminates HTTPS with Caddy and removes every direct host por
 `docker-compose.demo.yml` switches every backend service to the `demo` profile and explicitly enables the Demo payment provider. The application refuses to start if Demo payment is combined with `prod`, `local`, or `test`. The legacy `mock-confirm` endpoint is not registered in a public Demo deployment.
 
 The public gateway applies Redis-backed token-bucket limits to login, registration, password recovery, and payment operations. The production overlay removes the gateway's direct host port, so public traffic reaches it through the frontend reverse proxy and its trusted forwarded address.
+
+## AI assistant overlay
+
+The base stack starts `assistant-service` with AI disabled, so deployments without a provider key remain healthy and the browser hides the assistant entry. To enable it, store the provider key outside the repository with mode `0600`, set `AI_API_KEY_FILE` and `AI_BASE_URL`, and add the AI overlay last:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.ai.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.ai.yml up -d --build --wait
+```
+
+For a public Demo, place `docker-compose.ai.yml` after `docker-compose.demo.yml` and before optional observability/public overlays. The container entrypoint reads the key from `/run/secrets/gray_ai_api_key` without printing it. Qdrant is only reachable on the internal Compose network in production and public deployments.
 
 The user service also limits failed logins by normalized account identity across IP addresses and service replicas. It stores only an HMAC digest in Redis, starts a 30-second block after five failures, doubles later blocks up to 15 minutes, and clears the state after a successful password check. `AUTH_LOGIN_THROTTLE_SECRET` must be a dedicated random deployment secret and must not reuse a JWT key or database password.
 

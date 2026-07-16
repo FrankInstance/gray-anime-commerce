@@ -61,6 +61,23 @@ spring:
               uri: lb://user-service
               predicates:
                 - Path=/api/v1/auth/**,/api/v1/users/**,/api/v1/checkins/**,/api/v1/admin/users/**
+            - id: assistant-messages-rate-limited
+              order: -20
+              uri: lb://assistant-service
+              predicates:
+                - Path=/api/v1/assistant/messages
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrClientAddressKeyResolver}"
+                    redis-rate-limiter.replenishRate: ${operations.rate-limit.assistant.replenish-rate}
+                    redis-rate-limiter.burstCapacity: ${operations.rate-limit.assistant.burst-capacity}
+                    redis-rate-limiter.requestedTokens: ${operations.rate-limit.assistant.requested-tokens}
+            - id: assistant-service
+              uri: lb://assistant-service
+              predicates:
+                - Path=/api/v1/assistant/**
             - id: order-chapter-purchase
               uri: lb://order-service
               predicates:
@@ -114,6 +131,10 @@ operations:
     payment:
       replenish-rate: 100
       burst-capacity: 100
+      requested-tokens: 1
+    assistant:
+      replenish-rate: 1
+      burst-capacity: 3
       requested-tokens: 1
 
 management:

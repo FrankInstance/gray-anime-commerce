@@ -257,32 +257,20 @@ public class ContentApplicationService {
             return null;
         }
         LocalDateTime now = LocalDateTime.now();
+        ReadingProgress next = new ReadingProgress();
+        next.setUserId(user.id());
+        next.setWorkId(chapter.getWorkId());
+        next.setChapterId(chapter.getId());
+        next.setChapterNo(chapter.getChapterNo());
+        next.setChapterTitle(chapter.getTitle());
+        next.setProgressPercent(sanitizeProgressPercent(progressPercent));
+        next.setUpdatedAt(now);
+        progressMapper.upsert(next, progressPercent == null);
+
         ReadingProgress progress = progressMapper.selectOne(new LambdaQueryWrapper<ReadingProgress>()
                 .eq(ReadingProgress::getUserId, user.id())
                 .eq(ReadingProgress::getWorkId, chapter.getWorkId())
-                .last("limit 1"));
-        int nextProgressPercent = sanitizeProgressPercent(progressPercent);
-        if (progress == null) {
-            progress = new ReadingProgress();
-            progress.setUserId(user.id());
-            progress.setWorkId(chapter.getWorkId());
-            progress.setChapterId(chapter.getId());
-            progress.setChapterNo(chapter.getChapterNo());
-            progress.setChapterTitle(chapter.getTitle());
-            progress.setProgressPercent(nextProgressPercent);
-            progress.setUpdatedAt(now);
-            progressMapper.insert(progress);
-        } else {
-            boolean chapterChanged = !chapter.getId().equals(progress.getChapterId());
-            progress.setChapterId(chapter.getId());
-            progress.setChapterNo(chapter.getChapterNo());
-            progress.setChapterTitle(chapter.getTitle());
-            progress.setProgressPercent(progressPercent == null
-                    ? chapterChanged ? 0 : nullToZero(progress.getProgressPercent())
-                    : nextProgressPercent);
-            progress.setUpdatedAt(now);
-            progressMapper.updateById(progress);
-        }
+                .last("limit 1 for update"));
 
         bookshelfMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<UserBookshelf>()
                 .eq(UserBookshelf::getUserId, user.id())

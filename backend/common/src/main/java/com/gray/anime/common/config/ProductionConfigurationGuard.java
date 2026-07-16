@@ -71,6 +71,9 @@ public class ProductionConfigurationGuard {
         if ("payment-service".equals(serviceName)) {
             validatePaymentMode(environment);
         }
+        if ("assistant-service".equals(serviceName)) {
+            validateAssistant(environment);
+        }
     }
 
     private static void rejectMixedProfiles(Environment environment) {
@@ -95,6 +98,19 @@ public class ProductionConfigurationGuard {
             if (!Boolean.parseBoolean(required(environment, "PAYMENT_DEMO_ENABLED"))) {
                 throw invalid("PAYMENT_DEMO_ENABLED must be explicitly true in the demo profile");
             }
+        }
+    }
+
+    private static void validateAssistant(Environment environment) {
+        required(environment, "REDIS_HOST");
+        required(environment, "QDRANT_HOST");
+        if (!Boolean.parseBoolean(environment.getProperty("AI_ENABLED", "false"))) {
+            return;
+        }
+        requireSecret(environment, "AI_API_KEY");
+        String baseUrl = required(environment, "AI_BASE_URL").toLowerCase(Locale.ROOT);
+        if (!baseUrl.startsWith("https://") || baseUrl.contains("example.com")) {
+            throw invalid("AI_BASE_URL must use the provider HTTPS endpoint");
         }
     }
 
