@@ -119,6 +119,21 @@ services:
       - minio_data:/data
     restart: unless-stopped
 
+  qdrant:
+    image: qdrant/qdrant:v1.14.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6334'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
   gateway:
     build:
       context: .
@@ -290,6 +305,35 @@ services:
     healthcheck: *backend-healthcheck
     restart: unless-stopped
 
+  assistant-service:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      args:
+        SERVICE_NAME: assistant-service
+    environment:
+      <<: *service-env
+      JAVA_OPTS: "-Xms128m -Xmx384m"
+      QDRANT_HOST: qdrant
+      QDRANT_GRPC_PORT: 6334
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_API_KEY: ${AI_API_KEY:-disabled}
+      AI_BASE_URL: ${AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen-plus}
+      AI_ENABLE_THINKING: ${AI_ENABLE_THINKING:-false}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-v4}
+      AI_EMBEDDING_DIMENSIONS: ${AI_EMBEDDING_DIMENSIONS:-1024}
+    secrets: *public-key-secrets
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck: *backend-healthcheck
+    restart: unless-stopped
+
   frontend:
     build:
       context: .
@@ -307,6 +351,7 @@ volumes:
   rabbitmq_data:
   nacos_data:
   minio_data:
+  qdrant_data:
 
 secrets:
   gray_jwt_private_key:

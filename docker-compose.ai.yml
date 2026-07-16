@@ -1,0 +1,18 @@
+services:
+  assistant-service:
+    environment:
+      AI_ENABLED: "true"
+      AI_API_KEY_FILE: /run/secrets/gray_ai_api_key
+      AI_BASE_URL: ${AI_BASE_URL:?AI_BASE_URL must be the Alibaba Cloud Model Studio compatible endpoint}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen-plus}
+      AI_ENABLE_THINKING: ${AI_ENABLE_THINKING:-false}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-v4}
+    secrets:
+      - source: gray_jwt_public_key
+        target: gray_jwt_public_key
+      - source: gray_ai_api_key
+        target: gray_ai_api_key
+
+secrets:
+  gray_ai_api_key:
+    file: ${AI_API_KEY_FILE:?AI_API_KEY_FILE must point to a deployment-managed secret file}

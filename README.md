@@ -6,7 +6,8 @@
 
 - Frontend: React + TypeScript + Vite
 - Backend: Java 21, Spring Boot 3.5.x, Spring Cloud 2025.0.x, Spring Cloud Alibaba 2025.0.x
-- Data: MySQL 8, Redis, RabbitMQ, MinIO
+- AI: Spring AI 1.1.x, Alibaba Cloud Model Studio compatible API, Qdrant
+- Data: MySQL 8, Redis, RabbitMQ, MinIO, Qdrant
 - Deployment: Docker Compose on one ECS instance
 
 ## Layout
@@ -22,6 +23,7 @@ backend/
   order-service/
   payment-service/
   ingestion-service/
+  assistant-service/
 frontend/
   web/
   admin/
@@ -52,6 +54,21 @@ Development ports:
 - MinIO console: `9001`
 
 本地环境提供开放内容的演示导入，不实现未经授权的小说或漫画抓取。演示导入不会在生产 Profile 注册。
+
+## AI 客服
+
+AI 客服默认关闭。登录用户启用后可以咨询站内功能、搜索作品与商品，并根据书架和最近阅读获得推荐。模型只能调用作品、商品和阅读摘要三个只读工具，不具备下单、支付、充值或自动修改购物车的能力。
+
+本地启用阿里云百炼兼容接口：
+
+```powershell
+$env:AI_ENABLED = 'true'
+$env:AI_API_KEY = '<本地环境变量中的 API Key>'
+$env:AI_BASE_URL = '<百炼工作空间的 compatible-mode/v1 地址>'
+docker compose up -d --build --wait
+```
+
+模型默认使用关闭深度思考的 `qwen-plus`，向量模型使用 `text-embedding-v4`。可通过 `AI_CHAT_MODEL`、`AI_ENABLE_THINKING` 和 `AI_EMBEDDING_MODEL` 覆盖。API Key 不得写入代码、Compose 文件或 Git；生产环境使用 [`docker-compose.ai.yml`](docker-compose.ai.yml) 的 Secret 覆盖方式。
 
 ## Core Regression Tests
 

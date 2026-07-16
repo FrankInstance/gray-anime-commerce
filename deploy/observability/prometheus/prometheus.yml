@@ -18,3 +18,4 @@ scrape_configs:
           - order-service:8080
           - payment-service:8080
           - ingestion-service:8080
+          - assistant-service:8080

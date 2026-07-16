@@ -28,6 +28,9 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must come from secret storage}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must come from secret storage}
 
+  qdrant:
+    ports: !reset []
+
   gateway:
     ports: !reset []
     environment:
@@ -58,6 +61,14 @@ services:
 
   ingestion-service:
     environment: *production-service-env
+
+  assistant-service:
+    environment:
+      <<: *production-jwt-env
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_BASE_URL: ${AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen-plus}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-text-embedding-v4}
 
 secrets:
   gray_jwt_private_key:

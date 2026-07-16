@@ -113,6 +113,31 @@ class ProductionConfigurationGuardTest {
     }
 
     @Test
+    void assistantRequiresProviderSecretsOnlyWhenEnabled() {
+        MockEnvironment disabled = validBase("assistant-service")
+                .withProperty("REDIS_HOST", "redis")
+                .withProperty("QDRANT_HOST", "qdrant")
+                .withProperty("AI_ENABLED", "false");
+        assertThatCode(() -> ProductionConfigurationGuard.validate(disabled)).doesNotThrowAnyException();
+
+        MockEnvironment missingKey = validBase("assistant-service")
+                .withProperty("REDIS_HOST", "redis")
+                .withProperty("QDRANT_HOST", "qdrant")
+                .withProperty("AI_ENABLED", "true")
+                .withProperty("AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(missingKey))
+                .hasMessageContaining("AI_API_KEY");
+
+        MockEnvironment valid = validBase("assistant-service")
+                .withProperty("REDIS_HOST", "redis")
+                .withProperty("QDRANT_HOST", "qdrant")
+                .withProperty("AI_ENABLED", "true")
+                .withProperty("AI_API_KEY", "sk-production-assistant-key")
+                .withProperty("AI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1");
+        assertThatCode(() -> ProductionConfigurationGuard.validate(valid)).doesNotThrowAnyException();
+    }
+
+    @Test
     void demoUserServiceRequiresCleanupAndProductionRejectsIt() {
         MockEnvironment demoUser = validUserEnvironment()
                 .withProperty("DEMO_CLEANUP_ENABLED", "true");

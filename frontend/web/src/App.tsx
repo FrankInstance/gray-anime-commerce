@@ -23,6 +23,7 @@ import {
   X
 } from 'lucide-react';
 import { type CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AiAssistant } from './features/assistant/AiAssistant';
 
 type ApiResponse<T> = { code: string; message: string; data: T; traceId: string };
 type PageResult<T> = { items: T[]; page: number; size: number; total: number };
@@ -1996,6 +1997,27 @@ export function App() {
           onSelect={purchaseRechargeOption}
         />
       )}
+
+      {profile && token && (
+        <AiAssistant
+          key={profile.id}
+          blocked={cartOpen || authOpen || insufficientPointsOpen || rechargeOpen}
+          isVip={isVip}
+          token={token}
+          onAddProduct={(reference, sku) => addProductToCart({
+            id: reference.id!,
+            title: reference.title,
+            productType: reference.subtitle || 'GOODS',
+            description: reference.description || '',
+            coverUrl: reference.coverUrl || '',
+            limited: reference.limited,
+            saleStartAt: null,
+            skus: reference.skus
+          }, sku)}
+          onOpenProduct={(productId) => navigate(`/products/${productId}`)}
+          onOpenWork={(workId) => navigate(`/works/${workId}`)}
+        />
+      )}
     </main>
   );
 }
@@ -2262,6 +2284,7 @@ function ReaderPage({
   const saveProgressRef = useRef(onSaveProgress);
   const progressTargetRef = useRef<HTMLDivElement | null>(null);
   const restoredRef = useRef(false);
+  const progressDirtyRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const lastSavedPercentRef = useRef<number | null>(null);
 
@@ -2272,6 +2295,7 @@ function ReaderPage({
   useEffect(() => {
     if (loading || error || !reader) return;
     restoredRef.current = false;
+    progressDirtyRef.current = false;
     const savedPercent = normalizeProgressPercent(reader.progressPercent);
     lastSavedPercentRef.current = savedPercent;
     let cancelled = false;
@@ -2300,12 +2324,14 @@ function ReaderPage({
       if (lastSavedPercentRef.current !== null && Math.abs(percent - lastSavedPercentRef.current) < 2 && percent !== 100) {
         return;
       }
+      progressDirtyRef.current = true;
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
       }
       saveTimerRef.current = window.setTimeout(() => {
         lastSavedPercentRef.current = percent;
         saveProgressRef.current(currentChapterId, percent);
+        progressDirtyRef.current = false;
         saveTimerRef.current = null;
       }, 800);
     };
@@ -2319,9 +2345,10 @@ function ReaderPage({
         window.clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
       }
-      if (restoredRef.current) {
+      if (restoredRef.current && progressDirtyRef.current) {
         const percent = readerProgressPercent(progressTargetRef.current);
         lastSavedPercentRef.current = percent;
+        progressDirtyRef.current = false;
         saveProgressRef.current(currentChapterId, percent);
       }
     };
@@ -2336,7 +2363,10 @@ function ReaderPage({
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    saveProgressRef.current(currentChapterId, percent);
+    if (progressDirtyRef.current) {
+      progressDirtyRef.current = false;
+      saveProgressRef.current(currentChapterId, percent);
+    }
   };
 
   const openChapterAndSave = (chapter: Chapter) => {

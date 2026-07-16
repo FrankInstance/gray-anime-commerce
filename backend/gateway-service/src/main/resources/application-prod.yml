@@ -13,3 +13,7 @@ operations:
       replenish-rate: 1
       burst-capacity: 60
       requested-tokens: 3
+    assistant:
+      replenish-rate: 1
+      burst-capacity: 3
+      requested-tokens: 1

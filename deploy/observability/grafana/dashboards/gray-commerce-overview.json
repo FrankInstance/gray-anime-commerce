@@ -18,7 +18,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "red", "value": null },
-              { "color": "green", "value": 8 }
+              { "color": "green", "value": 9 }
             ]
           }
         },
@@ -38,7 +38,7 @@
       "targets": [
         { "editorMode": "code", "expr": "sum(up{job=\"gray-services\"})", "legendFormat": "healthy", "range": true, "refId": "A" }
       ],
-      "title": "Healthy services / 8",
+      "title": "Healthy services / 9",
       "type": "stat"
     },
     {

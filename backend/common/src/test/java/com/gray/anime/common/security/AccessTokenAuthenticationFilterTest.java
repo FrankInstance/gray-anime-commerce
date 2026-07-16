@@ -72,6 +72,19 @@ class AccessTokenAuthenticationFilterTest {
         assertThat(response.getStatus()).isEqualTo(403);
     }
 
+    @Test
+    void assistantRequiresAValidatedAccessToken() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/assistant/status");
+        request.addHeader("X-User-Id", "999");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<Boolean> forwarded = new AtomicReference<>(false);
+
+        filter.doFilter(request, response, (currentRequest, currentResponse) -> forwarded.set(true));
+
+        assertThat(forwarded.get()).isFalse();
+        assertThat(response.getStatus()).isEqualTo(401);
+    }
+
     private AccessTokenIssuer issuer(KeyPair pair) {
         return new AccessTokenIssuer(
                 (RSAPublicKey) pair.getPublic(),

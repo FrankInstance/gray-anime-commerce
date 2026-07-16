@@ -33,3 +33,7 @@ services:
   ingestion-service:
     environment:
       SPRING_PROFILES_ACTIVE: demo
+
+  assistant-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
