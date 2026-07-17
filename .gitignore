@@ -25,6 +25,7 @@ backups/
 
 .env
 .env.local
+.secrets/
 
 # Generated local authentication keys. Production keys must come from secret storage.
 deploy/keys/*.pem

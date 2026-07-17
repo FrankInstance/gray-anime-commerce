@@ -38,18 +38,20 @@ export function AiAssistant({
   blocked,
   isVip,
   token,
+  onRequireLogin,
   onAddProduct,
   onOpenProduct,
   onOpenWork
 }: {
   blocked: boolean;
   isVip: boolean;
-  token: string;
+  token?: string;
+  onRequireLogin: () => void;
   onAddProduct: (reference: AssistantReference, sku: AssistantSku) => void | Promise<void>;
   onOpenProduct: (productId: number) => void;
   onOpenWork: (workId: number) => void;
 }) {
-  const [available, setAvailable] = useState(false);
+  const [available, setAvailable] = useState(!token);
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(false);
   const [draft, setDraft] = useState('');
@@ -66,6 +68,11 @@ export function AiAssistant({
   }, [open]);
 
   useEffect(() => {
+    if (!token) {
+      setAvailable(true);
+      return () => abortRef.current?.abort();
+    }
+
     let active = true;
     setAvailable(false);
     void fetch('/api/v1/assistant/status', {
@@ -111,6 +118,11 @@ export function AiAssistant({
   async function sendMessage(value: string) {
     const question = value.trim();
     if (!question || sending) return;
+    if (!token) {
+      onRequireLogin();
+      return;
+    }
+
     const userId = crypto.randomUUID();
     const assistantId = crypto.randomUUID();
     setDraft('');
@@ -201,7 +213,7 @@ export function AiAssistant({
             <img src="/ai-assistant-avatar.png" alt="" />
             <div>
               <h2 id="ai-assistant-title">AI 客服</h2>
-              <span><i /> 在线</span>
+              <span className={!token ? 'isGuest' : undefined}><i /> {token ? '在线' : '登录后可用'}</span>
             </div>
             <div className="aiHeaderActions">
               {messages.length > 0 && (
@@ -260,7 +272,7 @@ export function AiAssistant({
               value={draft}
               disabled={sending}
               aria-label="向 AI 客服提问"
-              placeholder={sending ? '正在回复...' : '问问客服'}
+              placeholder={sending ? '正在回复...' : token ? '问问客服' : '登录后可提问'}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={handleInputKeyDown}
             />
@@ -272,7 +284,7 @@ export function AiAssistant({
       )}
 
       <button
-        className="aiOrb"
+        className={`aiOrb ${!token ? 'isGuest' : ''}`}
         type="button"
         aria-label={open ? '收起 AI 客服' : '打开 AI 客服'}
         aria-expanded={open}

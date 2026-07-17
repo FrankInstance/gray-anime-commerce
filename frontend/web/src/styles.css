@@ -996,6 +996,11 @@ button.secondary,
   box-shadow: 0 0 10px rgba(118, 255, 155, 0.9);
 }
 
+.aiOrb.isGuest .aiOrbStatus {
+  background: #8c93ad;
+  box-shadow: 0 0 8px rgba(140, 147, 173, 0.52);
+}
+
 .aiUnread {
   top: -2px;
   right: -2px;
@@ -1081,6 +1086,11 @@ button.secondary,
   border-radius: 50%;
   background: #76ff9b;
   box-shadow: 0 0 8px rgba(118, 255, 155, 0.8);
+}
+
+.aiPanelHeader span.isGuest i {
+  background: #8c93ad;
+  box-shadow: 0 0 6px rgba(140, 147, 173, 0.5);
 }
 
 .aiHeaderActions {

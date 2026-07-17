@@ -196,6 +196,26 @@ const fallbackWorks: Work[] = [
     description: '机械少女在雨港寻找失踪设计师的漫画分镜演示。',
     coverUrl: 'https://picsum.photos/seed/gray-manga-a/900/1200',
     popularity: 884
+  },
+  {
+    id: 3,
+    title: '彻夜之歌',
+    workType: 'MANGA',
+    author: '琴山',
+    category: '都市 · 恋爱',
+    description: '无法入睡的少年走进夜晚，在霓虹街巷中遇见改变日常的吸血鬼少女。',
+    coverUrl: '/catalog/yofukashi-cover.png',
+    popularity: 1218
+  },
+  {
+    id: 4,
+    title: '欢迎来到实力至上主义的教室',
+    workType: 'NOVEL',
+    author: '衣笠彰梧',
+    category: '校园 · 智斗',
+    description: '以实力衡量一切的校园里，学生们围绕班级评价、点数与选择展开竞争。',
+    coverUrl: '/catalog/classroom-cover.png',
+    popularity: 1365
   }
 ];
 
@@ -222,10 +242,20 @@ const fallbackProducts: Product[] = [
   }
 ];
 
-const fallbackChapters: Chapter[] = [
-  { id: 1, chapterNo: 1, title: '第一章 夜班列车', free: true, pricePoints: 0 },
-  { id: 2, chapterNo: 2, title: '第二章 星砂契约', free: false, pricePoints: 20 }
-];
+const fallbackChaptersByWork: Record<number, Chapter[]> = {
+  1: [
+    { id: 1, chapterNo: 1, title: '第一章 夜班列车', free: true, pricePoints: 0 },
+    { id: 2, chapterNo: 2, title: '第二章 星砂契约', free: false, pricePoints: 20 }
+  ],
+  2: [
+    { id: 3, chapterNo: 1, title: '第1话 蓝色雨衣', free: true, pricePoints: 0 },
+    { id: 4, chapterNo: 2, title: '第2话 生锈心跳', free: false, pricePoints: 25 }
+  ],
+  3: [{ id: 5, chapterNo: 1, title: '第1话 夜色相遇', free: true, pricePoints: 0 }],
+  4: [{ id: 6, chapterNo: 1, title: '第一章 欢迎来到梦幻般的校园生活', free: true, pricePoints: 0 }]
+};
+
+const fallbackChapters = Object.values(fallbackChaptersByWork).flat();
 
 const fallbackReaderText = [
   '列车驶过星轨，书页像薄雪一样翻飞。',
@@ -235,6 +265,27 @@ const fallbackReaderText = [
   )),
   '列车抵达终点时，天色还没有亮。魔女合上书箱，铃铛轻轻响了一声。她知道，只要还有人愿意继续读下去，故事就不会真正结束。'
 ].join('\n\n');
+
+const fallbackClassroomText = [
+  '四月的风穿过校门时，站在公告栏前的新生都不约而同地放慢了脚步。这里的建筑、制服和迎新标语看起来与普通学校没有区别，只有入学说明中反复出现的“评价”二字，提醒每个人接下来的生活并不简单。',
+  '教室里的座位已经排好，桌面上放着学生手册和一台只允许连接校园网络的终端。班主任没有立刻讲课，而是让所有人查看刚刚到账的个人点数。数字远比预想中慷慨，教室里很快响起压低的欢呼声。',
+  '有人已经计划放学后的购物，有人怀疑这份优待另有条件，也有人只是安静地翻完规则。手册写得十分客气：点数可以在校园内代替现金，但每月发放数量会根据学生表现重新计算。至于“表现”具体包含什么，没有任何解释。',
+  ...Array.from({ length: 8 }, () => [
+    '午休前，班里进行了第一次临时讨论。靠窗的学生提出先统计大家擅长的科目，坐在前排的人却认为现在没有必要紧张。看似随意的意见逐渐分成几组，每个人都在观察别人，也在判断谁值得合作。',
+    '走廊尽头的电子屏滚动播放社团招募和生活通知。画面切换的一瞬间，屏幕上短暂出现了班级评价排行，又很快被新的公告覆盖。注意到这一幕的人不多，但原本轻松的气氛已经悄悄发生变化。',
+    '下午的课程结束后，校园商店挤满了拿到点数的新生。货架上的商品种类齐全，价格却高低悬殊。少年没有急着购买，只选了一瓶水，然后站在结算台旁观察终端扣款的提示。每一次消费都被完整记录，像是一场尚未公布规则的测验。',
+    '回到宿舍时，学生手册推送了当天最后一条通知：下个月的点数并不保证与本月相同。简短的一句话让群聊迅速热闹起来。有人抱怨学校故弄玄虚，有人开始计算剩余点数，也有人删除了刚刚列好的购物清单。',
+    '窗外的教学楼逐层熄灯，操场边仍有几支社团在训练。少年把手册放回桌面，重新整理今天听到的每一句话。学校给予的自由并非没有代价，只是代价暂时还没有标在任何商品上。'
+  ]).flat(),
+  '午夜前，班级终端再次亮起。新的页面只显示班级名称和一个尚未变化的数字。少年看了片刻便关掉屏幕。他知道，真正的入学说明直到此刻才刚刚开始。'
+].join('\n\n');
+
+const fallbackReaderContent: Record<number, { text: string; images: string[] }> = {
+  1: { text: fallbackReaderText, images: [] },
+  3: { text: '漫画分镜演示：蓝色雨衣、旧码头、启动核心。', images: [] },
+  5: { text: '', images: ['/catalog/yofukashi-chapter-1.png'] },
+  6: { text: fallbackClassroomText, images: [] }
+};
 
 class ApiRequestError extends Error {
   constructor(
@@ -950,8 +1001,9 @@ export function App() {
           setChapters(data.chapters);
         })
         .catch(() => {
-          setDetailWork(fallbackWorks.find((work) => work.id === workId) ?? fallbackWorks[0]);
-          setChapters(fallbackChapters);
+          const fallbackWork = fallbackWorks.find((work) => work.id === workId) ?? fallbackWorks[0];
+          setDetailWork(fallbackWork);
+          setChapters(fallbackChaptersByWork[fallbackWork.id] ?? []);
         });
     }
 
@@ -970,13 +1022,14 @@ export function App() {
         .then(setReaderData)
         .catch((error) => {
           const fallbackChapter = fallbackChapters.find((chapter) => chapter.id === route.chapterId);
-          if (fallbackChapter?.free) {
+          const fallbackContent = fallbackReaderContent[route.chapterId];
+          if (fallbackChapter?.free && fallbackContent) {
             setReaderData({
               chapterId: fallbackChapter.id,
               title: fallbackChapter.title,
               unlocked: true,
-              text: fallbackReaderText,
-              images: [],
+              text: fallbackContent.text,
+              images: fallbackContent.images,
               progressPercent: 0
             });
             return;
@@ -1998,26 +2051,25 @@ export function App() {
         />
       )}
 
-      {profile && token && (
-        <AiAssistant
-          key={profile.id}
-          blocked={cartOpen || authOpen || insufficientPointsOpen || rechargeOpen}
-          isVip={isVip}
-          token={token}
-          onAddProduct={(reference, sku) => addProductToCart({
-            id: reference.id!,
-            title: reference.title,
-            productType: reference.subtitle || 'GOODS',
-            description: reference.description || '',
-            coverUrl: reference.coverUrl || '',
-            limited: reference.limited,
-            saleStartAt: null,
-            skus: reference.skus
-          }, sku)}
-          onOpenProduct={(productId) => navigate(`/products/${productId}`)}
-          onOpenWork={(workId) => navigate(`/works/${workId}`)}
-        />
-      )}
+      <AiAssistant
+        key={profile?.id ?? 'guest'}
+        blocked={cartOpen || authOpen || insufficientPointsOpen || rechargeOpen}
+        isVip={isVip}
+        token={token || undefined}
+        onRequireLogin={() => openAuth('login')}
+        onAddProduct={(reference, sku) => addProductToCart({
+          id: reference.id!,
+          title: reference.title,
+          productType: reference.subtitle || 'GOODS',
+          description: reference.description || '',
+          coverUrl: reference.coverUrl || '',
+          limited: reference.limited,
+          saleStartAt: null,
+          skus: reference.skus
+        }, sku)}
+        onOpenProduct={(productId) => navigate(`/products/${productId}`)}
+        onOpenWork={(workId) => navigate(`/works/${workId}`)}
+      />
     </main>
   );
 }
