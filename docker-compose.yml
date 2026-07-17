@@ -44,7 +44,8 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+      - ./deploy/mysql/catalog-demo-content.sql:/docker-entrypoint-initdb.d/20-catalog-demo-content.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ugray", "-pgray_pass"]
       interval: 10s
