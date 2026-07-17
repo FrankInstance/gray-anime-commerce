@@ -1,7 +1,15 @@
+SET NAMES utf8mb4;
 USE gray_anime;
 
 -- User-supplied demo artwork is stored locally under frontend/web/public/catalog.
 -- The novel body below is original test copy and does not reproduce the linked third-party chapter.
+-- Normalize rows created by clients that did not negotiate utf8mb4 before rerunning this idempotent seed.
+UPDATE work SET title = '彻夜之歌'
+WHERE cover_url = '/catalog/yofukashi-cover.png';
+
+UPDATE work SET title = '欢迎来到实力至上主义的教室'
+WHERE cover_url = '/catalog/classroom-cover.png';
+
 INSERT INTO work (title, work_type, author, category, description, cover_url, status, popularity, created_at, updated_at)
 SELECT '彻夜之歌', 'MANGA', '琴山', '都市 · 恋爱', '无法入睡的少年走进夜晚，在霓虹街巷中遇见改变日常的吸血鬼少女。', '/catalog/yofukashi-cover.png', 'PUBLISHED', 1218, NOW(), NOW()
 WHERE NOT EXISTS (SELECT 1 FROM work WHERE title = '彻夜之歌' AND work_type = 'MANGA');
