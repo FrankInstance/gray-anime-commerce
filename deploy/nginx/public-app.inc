@@ -1,0 +1,33 @@
+resolver 127.0.0.11 valid=10s ipv6=off;
+root /usr/share/nginx/html;
+index index.html;
+
+location = /api/v1/assistant/messages {
+    set $gateway_upstream gateway:8080;
+    proxy_pass http://$gateway_upstream;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 40s;
+}
+
+location /api/ {
+    set $gateway_upstream gateway:8080;
+    proxy_pass http://$gateway_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location /admin/ {
+    try_files $uri $uri/ /admin/index.html;
+}
+
+location / {
+    try_files $uri $uri/ /index.html;
+}

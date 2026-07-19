@@ -201,7 +201,11 @@ CREATE TABLE IF NOT EXISTS orders (
   total_cents INT NOT NULL DEFAULT 0,
   total_points INT NOT NULL DEFAULT 0,
   status VARCHAR(30) NOT NULL,
+  fulfillment_status VARCHAR(30) NOT NULL DEFAULT 'NOT_REQUIRED',
   payment_no VARCHAR(64) NULL,
+  cancel_reason VARCHAR(60) NULL,
+  paid_at DATETIME NULL,
+  cancelled_at DATETIME NULL,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
   INDEX idx_orders_user (user_id),
@@ -231,22 +235,53 @@ CREATE TABLE IF NOT EXISTS payment (
   amount_cents INT NOT NULL,
   channel VARCHAR(30) NOT NULL,
   status VARCHAR(30) NOT NULL,
+  provider_session_id VARCHAR(160) NULL,
+  session_expires_at DATETIME NULL,
+  failure_code VARCHAR(80) NULL,
+  attempt_count INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
   confirmed_at DATETIME NULL,
   INDEX idx_payment_order (order_no)
 );
 
 CREATE TABLE IF NOT EXISTS outbox_event (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  event_id CHAR(36) NOT NULL UNIQUE,
+  producer VARCHAR(80) NOT NULL,
   aggregate_type VARCHAR(60) NOT NULL,
   aggregate_id VARCHAR(80) NOT NULL,
   event_type VARCHAR(80) NOT NULL,
+  routing_key VARCHAR(120) NOT NULL,
   payload TEXT NOT NULL,
   status VARCHAR(30) NOT NULL,
   retry_count INT NOT NULL DEFAULT 0,
+  available_at DATETIME NOT NULL,
+  last_error VARCHAR(160) NULL,
   created_at DATETIME NOT NULL,
   published_at DATETIME NULL,
-  INDEX idx_outbox_status (status, id)
+  INDEX idx_outbox_status (producer, status, available_at, id)
+);
+
+CREATE TABLE IF NOT EXISTS inbox_event (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  consumer VARCHAR(100) NOT NULL,
+  event_id CHAR(36) NOT NULL,
+  processed_at DATETIME NOT NULL,
+  UNIQUE KEY uk_inbox_consumer_event (consumer, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS payment_transition (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  payment_no VARCHAR(64) NOT NULL,
+  from_status VARCHAR(30) NULL,
+  to_status VARCHAR(30) NOT NULL,
+  trigger_type VARCHAR(60) NOT NULL,
+  idempotency_key VARCHAR(160) NOT NULL,
+  trace_id VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uk_payment_transition_key (idempotency_key),
+  INDEX idx_payment_transition_no (payment_no, id)
 );
 
 CREATE TABLE IF NOT EXISTS import_task (

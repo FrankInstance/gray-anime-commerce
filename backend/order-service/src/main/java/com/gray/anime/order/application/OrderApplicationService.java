@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gray.anime.common.api.PageResult;
+import com.gray.anime.common.api.TraceIds;
 import com.gray.anime.common.exception.BizException;
 import com.gray.anime.common.security.CurrentUser;
 import com.gray.anime.order.domain.*;
@@ -24,7 +25,6 @@ public class OrderApplicationService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper itemMapper;
     private final PaymentMapper paymentMapper;
-    private final OutboxEventMapper outboxMapper;
     private final SkuSnapshotMapper skuMapper;
     private final ProductSnapshotMapper productMapper;
     private final ChapterSnapshotMapper chapterMapper;
@@ -34,14 +34,13 @@ public class OrderApplicationService {
     private final InventoryClient inventoryClient;
     private final OrderLifecycleService lifecycleService;
 
-    public OrderApplicationService(OrderMapper orderMapper, OrderItemMapper itemMapper, PaymentMapper paymentMapper, OutboxEventMapper outboxMapper,
+    public OrderApplicationService(OrderMapper orderMapper, OrderItemMapper itemMapper, PaymentMapper paymentMapper,
                                    SkuSnapshotMapper skuMapper, ProductSnapshotMapper productMapper, ChapterSnapshotMapper chapterMapper, AppUserSnapshotMapper userMapper,
                                    ChapterEntitlementRecordMapper entitlementMapper, PointsLedgerMapper pointsLedgerMapper, InventoryClient inventoryClient,
                                    OrderLifecycleService lifecycleService) {
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.paymentMapper = paymentMapper;
-        this.outboxMapper = outboxMapper;
         this.skuMapper = skuMapper;
         this.productMapper = productMapper;
         this.chapterMapper = chapterMapper;
@@ -62,6 +61,7 @@ public class OrderApplicationService {
         order.setUserId(user.id());
         order.setOrderType("PRODUCT");
         order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+        order.setFulfillmentStatus(FulfillmentStatus.PENDING.name());
         order.setTotalCents(0);
         order.setTotalPoints(0);
         order.setCreatedAt(now);
@@ -92,7 +92,6 @@ public class OrderApplicationService {
         order.setTotalCents(total);
         order.setPaymentNo(createPayment(orderNo, user.id(), total));
         orderMapper.updateById(order);
-        outbox("Order", orderNo, "OrderCreated", "{\"orderNo\":\"" + orderNo + "\",\"type\":\"PRODUCT\"}");
         return orderView(order);
     }
 
@@ -108,11 +107,11 @@ public class OrderApplicationService {
         order.setTotalCents(3000);
         order.setTotalPoints(0);
         order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+        order.setFulfillmentStatus(FulfillmentStatus.PENDING.name());
         order.setPaymentNo(createPayment(orderNo, user.id(), 3000));
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
         orderMapper.insert(order);
-        outbox("Order", orderNo, "VipOrderCreated", "{\"orderNo\":\"" + orderNo + "\",\"amountCents\":3000}");
         return orderView(order);
     }
 
@@ -133,6 +132,7 @@ public class OrderApplicationService {
         order.setTotalCents(amountCents);
         order.setTotalPoints(points);
         order.setStatus(OrderStatus.PENDING_PAYMENT.name());
+        order.setFulfillmentStatus(FulfillmentStatus.PENDING.name());
         order.setPaymentNo(createPayment(orderNo, user.id(), amountCents));
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -147,7 +147,6 @@ public class OrderApplicationService {
         item.setUnitPoints(points);
         itemMapper.insert(item);
 
-        outbox("Order", orderNo, "PointsOrderCreated", "{\"orderNo\":\"" + orderNo + "\",\"points\":" + points + "}");
         return orderView(order);
     }
 
@@ -197,6 +196,18 @@ public class OrderApplicationService {
         return new PageResult<>(result.getRecords().stream().map(this::orderView).toList(), page, size, result.getTotal());
     }
 
+    public OrderView myOrder(CurrentUser user, String orderNo) {
+        requireLogin(user);
+        OrderRecord order = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>()
+                .eq(OrderRecord::getOrderNo, orderNo)
+                .eq(OrderRecord::getUserId, user.id())
+                .last("limit 1"));
+        if (order == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        return orderView(order);
+    }
+
     @Transactional
     public OrderView cancelOrder(CurrentUser user, String orderNo) {
         requireLogin(user);
@@ -213,7 +224,7 @@ public class OrderApplicationService {
         if (!lifecycleService.cancelPendingOrder(order, "USER_CANCELLED")) {
             throw new BizException("ORDER_CANNOT_CANCEL", "订单无法取消");
         }
-        return orderView(order);
+        return myOrder(user, orderNo);
     }
 
     public PageResult<OrderView> adminOrders(long page, long size, String status) {
@@ -248,6 +259,7 @@ public class OrderApplicationService {
         order.setTotalCents(0);
         order.setTotalPoints(price);
         order.setStatus(OrderStatus.PAID.name());
+        order.setFulfillmentStatus(FulfillmentStatus.NOT_REQUIRED.name());
         order.setPaymentNo(null);
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -261,7 +273,6 @@ public class OrderApplicationService {
         item.setUnitPriceCents(0);
         item.setUnitPoints(price);
         itemMapper.insert(item);
-        outbox("Order", orderNo, "ChapterUnlocked", "{\"chapterId\":" + chapter.getId() + ",\"source\":\"" + source + "\"}");
         return orderView(order);
     }
 
@@ -273,9 +284,13 @@ public class OrderApplicationService {
         payment.setUserId(userId);
         payment.setAmountCents(amountCents);
         payment.setChannel("UNASSIGNED");
-        payment.setStatus("PENDING");
+        payment.setStatus("CREATED");
+        payment.setAttemptCount(0);
         payment.setCreatedAt(LocalDateTime.now());
+        payment.setUpdatedAt(LocalDateTime.now());
         paymentMapper.insert(payment);
+        paymentMapper.insertTransition(paymentNo, null, "CREATED", "ORDER_CREATED",
+                "PAYMENT_CREATED:" + paymentNo, TraceIds.current());
         return paymentNo;
     }
 
@@ -329,10 +344,10 @@ public class OrderApplicationService {
                 .toList();
         PaymentRecord payment = paymentView(order);
         return new OrderView(order.getId(), order.getOrderNo(), order.getOrderType(), order.getTotalCents(), order.getTotalPoints(),
-                order.getStatus(), order.getPaymentNo(),
+                order.getStatus(), order.getFulfillmentStatus(), order.getCancelReason(), order.getPaymentNo(),
                 payment == null ? null : payment.getStatus(),
                 payment == null ? null : payment.getChannel(),
-                payment == null ? null : payment.getConfirmedAt(),
+                order.getPaidAt(), order.getCancelledAt(),
                 order.getCreatedAt(), items);
     }
 
@@ -371,18 +386,6 @@ public class OrderApplicationService {
             return productTitle;
         }
         return productTitle + " · " + skuName;
-    }
-
-    private void outbox(String aggregateType, String aggregateId, String type, String payload) {
-        OutboxEvent event = new OutboxEvent();
-        event.setAggregateType(aggregateType);
-        event.setAggregateId(aggregateId);
-        event.setEventType(type);
-        event.setPayload(payload);
-        event.setStatus("NEW");
-        event.setRetryCount(0);
-        event.setCreatedAt(LocalDateTime.now());
-        outboxMapper.insert(event);
     }
 
     private void requireLogin(CurrentUser user) {

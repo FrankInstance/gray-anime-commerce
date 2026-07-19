@@ -54,3 +54,21 @@ groups:
         annotations:
           summary: "Payment service errors"
           description: "Payment operations returned multiple server errors in ten minutes."
+
+      - alert: GrayOutboxBacklog
+        expr: sum(gray_outbox_backlog) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox backlog is growing"
+          description: "More than 100 domain events have remained unpublished for five minutes."
+
+      - alert: GrayOutboxDeadEvents
+        expr: sum(gray_outbox_dead) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead outbox events detected"
+          description: "At least one domain event exhausted its publisher retries and requires investigation."

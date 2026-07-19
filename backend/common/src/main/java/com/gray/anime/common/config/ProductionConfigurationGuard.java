@@ -22,6 +22,7 @@ public class ProductionConfigurationGuard {
     );
     private static final Set<String> RABBITMQ_SERVICES = Set.of(
             "user-service",
+            "inventory-service",
             "order-service",
             "payment-service",
             "ingestion-service"

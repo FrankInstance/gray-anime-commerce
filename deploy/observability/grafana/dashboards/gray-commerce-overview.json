@@ -346,6 +346,26 @@
       ],
       "title": "JVM heap usage",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "gray-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 21 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (producer) (gray_outbox_backlog)", "legendFormat": "{{producer}}", "range": true, "refId": "A" }],
+      "title": "Outbox backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "gray-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 21 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (producer) (gray_outbox_dead)", "legendFormat": "{{producer}}", "range": true, "refId": "A" }],
+      "title": "Dead outbox events",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

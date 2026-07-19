@@ -76,9 +76,9 @@ type AuthMode = 'login' | 'register' | 'resetRequest' | 'resetConfirm';
 type AuthResponse = { accessToken: string; expiresIn: number; profile: Profile; roles: string[] };
 type PasswordResetResponse = { channel: string; devToken?: string | null; expiresAt: string };
 type OrderItemView = { itemType: string; refId: number | null; skuId: number | null; title: string; quantity: number; unitPriceCents: number; unitPoints: number; reservationNo: string | null };
-type OrderView = { id: number; orderNo: string; orderType: string; totalCents: number; totalPoints: number; status: string; paymentNo: string | null; paymentStatus: string | null; paymentChannel: string | null; paidAt: string | null; createdAt: string; items: OrderItemView[] };
+type OrderView = { id: number; orderNo: string; orderType: string; totalCents: number; totalPoints: number; status: string; fulfillmentStatus: string; paymentNo: string | null; paymentStatus: string | null; paymentChannel: string | null; cancelReason: string | null; paidAt: string | null; cancelledAt: string | null; createdAt: string; items: OrderItemView[] };
 type PointsLedgerView = { id: number; amount: number; reason: string; bizKey: string; createdAt: string };
-type PaymentView = { paymentNo: string; orderNo: string; amountCents: number; channel: string; status: string; confirmedAt: string | null };
+type PaymentView = { paymentNo: string; orderNo: string; amountCents: number; channel: string; status: string; sessionExpiresAt: string | null; confirmedAt: string | null };
 type PendingPayment = { orderNo: string; paymentNo: string; amountCents: number; status: string; itemSkuIds?: number[] };
 type PendingRechargePayment = PendingPayment & { optionTitle: string; successMessage: string };
 type RealPaymentRequest = { orderNo: string; paymentNo: string; amountCents: number };
@@ -86,6 +86,7 @@ type RealPaymentSession = {
   provider: string;
   sessionId: string;
   paymentNo: string;
+  paymentStatus: string;
   interactionMode: 'DEMO_CONFIRMATION' | 'REDIRECT';
   redirectUrl: string | null;
   expiresAt: string;
@@ -99,7 +100,7 @@ type RechargeOption = {
   caption: string;
 };
 type SectionKey = 'NOVEL' | 'MANGA' | 'MEMBER';
-type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED';
+type AccountOrderFilter = 'ALL' | 'PENDING_PAYMENT' | 'PROCESSING' | 'COMPLETED' | 'FULFILLMENT_FAILED' | 'CANCELLED' | 'EXPIRED';
 type BookshelfSort = 'recentReading' | 'recentAdded';
 type ReaderTheme = 'night' | 'dim' | 'paper';
 
@@ -148,8 +149,11 @@ const sections: { key: SectionKey; label: string }[] = [
 const accountOrderFilters: { value: AccountOrderFilter; label: string }[] = [
   { value: 'ALL', label: '全部' },
   { value: 'PENDING_PAYMENT', label: '待支付' },
-  { value: 'PAID', label: '已完成' },
-  { value: 'CANCELLED', label: '已取消' }
+  { value: 'PROCESSING', label: '处理中' },
+  { value: 'COMPLETED', label: '已完成' },
+  { value: 'FULFILLMENT_FAILED', label: '履约失败' },
+  { value: 'CANCELLED', label: '已取消' },
+  { value: 'EXPIRED', label: '已过期' }
 ];
 
 const bookshelfSortOptions: { value: BookshelfSort; label: string }[] = [
@@ -352,6 +356,23 @@ async function executePayment(payment: RealPaymentRequest, token: string) {
   return false;
 }
 
+async function pollOrderAfterPayment(orderNo: string, token: string) {
+  const startedAt = Date.now();
+  let delayMs = 500;
+  let latest: OrderView | null = null;
+  while (Date.now() - startedAt < 15_000) {
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    latest = await api<OrderView>(`/api/v1/orders/${orderNo}`, {}, token);
+    const paymentFinished = ['FAILED', 'CANCELLED', 'EXPIRED'].includes(latest.paymentStatus ?? '');
+    const fulfillmentFinished = ['COMPLETED', 'FAILED'].includes(latest.fulfillmentStatus);
+    if (latest.status === 'CANCELLED' || paymentFinished || (latest.status === 'PAID' && fulfillmentFinished)) {
+      return latest;
+    }
+    delayMs = Math.min(2_000, Math.round(delayMs * 1.5));
+  }
+  return latest ?? api<OrderView>(`/api/v1/orders/${orderNo}`, {}, token);
+}
+
 function money(cents: number) {
   return `¥${(cents / 100).toFixed(2)}`;
 }
@@ -433,33 +454,47 @@ function orderTypeLabel(type: string) {
   } as Record<string, string>)[type] ?? type;
 }
 
-function orderStatusLabel(status: string) {
+function orderDisplayStatus(order: Pick<OrderView, 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'cancelReason'>) {
+  if (order.status === 'CANCELLED') {
+    return order.paymentStatus === 'EXPIRED' || order.cancelReason === 'PAYMENT_TIMEOUT' ? 'EXPIRED' : 'CANCELLED';
+  }
+  if (order.fulfillmentStatus === 'FAILED') return 'FULFILLMENT_FAILED';
+  if (order.status === 'PAID' && order.fulfillmentStatus === 'COMPLETED') return 'COMPLETED';
+  if (order.paymentStatus === 'CONFIRMED' || order.status === 'PAID') return 'PROCESSING';
+  return 'PENDING_PAYMENT';
+}
+
+function orderStatusLabel(order: Pick<OrderView, 'status' | 'paymentStatus' | 'fulfillmentStatus' | 'cancelReason'>) {
   return ({
     PENDING_PAYMENT: '待支付',
-    PAID: '已完成',
-    CANCELLED: '已取消'
-  } as Record<string, string>)[status] ?? status;
+    PROCESSING: '支付处理中',
+    COMPLETED: '已完成',
+    FULFILLMENT_FAILED: '履约失败',
+    CANCELLED: '已取消',
+    EXPIRED: '已过期'
+  } as Record<string, string>)[orderDisplayStatus(order)];
 }
 
 function paymentStatusLabel(status: string | null | undefined) {
   if (!status) return '无支付单';
   return ({
-    PENDING: '待确认',
+    CREATED: '待支付',
+    PENDING: '待支付',
     CONFIRMED: '已确认',
-    CANCELLED: '已取消'
+    FAILED: '支付失败',
+    CANCELLED: '已取消',
+    EXPIRED: '已过期'
   } as Record<string, string>)[status] ?? status;
 }
 
 function canPayOrder(order: Pick<OrderView, 'paymentNo' | 'status' | 'paymentStatus'>) {
   return Boolean(order.paymentNo)
-    && order.status !== 'PAID'
-    && order.status !== 'CANCELLED'
-    && order.paymentStatus !== 'CONFIRMED'
-    && order.paymentStatus !== 'CANCELLED';
+    && order.status === 'PENDING_PAYMENT'
+    && ['CREATED', 'PENDING', 'FAILED'].includes(order.paymentStatus ?? '');
 }
 
-function canCancelOrder(order: Pick<OrderView, 'status'>) {
-  return order.status === 'PENDING_PAYMENT';
+function canCancelOrder(order: Pick<OrderView, 'status' | 'paymentStatus'>) {
+  return order.status === 'PENDING_PAYMENT' && order.paymentStatus !== 'CONFIRMED';
 }
 
 function chapterAccessLabel(chapter: Chapter) {
@@ -1179,10 +1214,7 @@ export function App() {
     if (!token) return;
     if (showLoading) setAccountLoading(true);
     setAccountError('');
-    const orderParams = new URLSearchParams({ page: '1', size: '20' });
-    if (filter !== 'ALL') {
-      orderParams.set('status', filter);
-    }
+    const orderParams = new URLSearchParams({ page: '1', size: '100' });
     try {
       const [orders, ledger, bookshelf, progress] = await Promise.all([
         api<PageResult<OrderView>>(`/api/v1/orders?${orderParams.toString()}`, {}, token),
@@ -1190,7 +1222,9 @@ export function App() {
         api<PageResult<BookshelfItem>>('/api/v1/reading/bookshelf?page=1&size=50', {}, token),
         api<PageResult<ReadingProgress>>('/api/v1/reading/progress?page=1&size=20', {}, token)
       ]);
-      setAccountOrders(orders.items);
+      setAccountOrders(filter === 'ALL'
+        ? orders.items
+        : orders.items.filter((order) => orderDisplayStatus(order) === filter));
       setAccountLedger(ledger.items);
       setAccountBookshelf(bookshelf.items);
       setAccountReadingProgress(progress.items);
@@ -1372,9 +1406,23 @@ export function App() {
     try {
       const confirmed = await executePayment(pendingRechargePayment, token);
       if (!confirmed) return;
-      await refreshProfile();
-      setRechargeMessage(pendingRechargePayment.successMessage);
-      setPendingRechargePayment(null);
+      setPendingRechargePayment((payment) => payment ? { ...payment, status: 'PROCESSING' } : payment);
+      setRechargeMessage('支付已确认，处理中。');
+      const order = await pollOrderAfterPayment(pendingRechargePayment.orderNo, token);
+      if (order.status === 'PAID' && order.fulfillmentStatus === 'COMPLETED') {
+        await refreshProfile();
+        setRechargeMessage(pendingRechargePayment.successMessage);
+        setPendingRechargePayment(null);
+      } else if (order.paymentStatus === 'FAILED') {
+        setRechargeMessage('支付失败，可在订单中心重新支付。');
+        setPendingRechargePayment(null);
+      } else if (order.status === 'CANCELLED') {
+        setRechargeMessage(order.paymentStatus === 'EXPIRED' ? '订单已过期。' : '订单已取消。');
+        setPendingRechargePayment(null);
+      } else {
+        setRechargeMessage('支付已确认，可在订单中心查看处理进度。');
+        setPendingRechargePayment(null);
+      }
     } catch (error) {
       setRechargeMessage(errorMessage(error));
     } finally {
@@ -1397,6 +1445,17 @@ export function App() {
         amountCents: order.totalCents
       }, token);
       if (!confirmed) return;
+      setAccountError('支付已确认，处理中。');
+      const latest = await pollOrderAfterPayment(order.orderNo, token);
+      if (latest.paymentStatus === 'FAILED') {
+        setAccountError('支付失败，可重新支付。');
+      } else if (latest.status === 'CANCELLED') {
+        setAccountError(latest.paymentStatus === 'EXPIRED' ? '订单已过期。' : '订单已取消。');
+      } else if (latest.status === 'PAID' && latest.fulfillmentStatus === 'PENDING') {
+        setAccountError('支付已确认，可稍后查看处理进度。');
+      } else {
+        setAccountError('');
+      }
       await refreshProfile();
       await loadAccountData(false);
     } catch (error) {
@@ -1569,6 +1628,19 @@ export function App() {
     try {
       const confirmed = await executePayment(pendingPayment, token);
       if (!confirmed) return;
+      setPendingPayment((payment) => payment ? { ...payment, status: 'PROCESSING' } : payment);
+      setCartMessage('支付已确认，处理中。');
+      const order = await pollOrderAfterPayment(pendingPayment.orderNo, token);
+      if (order.paymentStatus === 'FAILED') {
+        setPendingPayment((payment) => payment ? { ...payment, status: 'FAILED' } : payment);
+        setCartMessage('支付失败，可重新支付。');
+        return;
+      }
+      if (order.status === 'CANCELLED') {
+        setPendingPayment(null);
+        setCartMessage(order.paymentStatus === 'EXPIRED' ? '订单已过期。' : '订单已取消。');
+        return;
+      }
       const paidSkuIds = new Set(pendingPayment.itemSkuIds ?? cartItems.map((item) => item.skuId));
       const remainingItems = cartItems.filter((item) => !paidSkuIds.has(item.skuId));
       setCartItems(remainingItems);
@@ -1582,10 +1654,10 @@ export function App() {
         return next;
       });
       setPendingPayment(null);
-      setCartMessage('');
+      setCartMessage(order.fulfillmentStatus === 'COMPLETED' ? '' : '支付已确认，可在订单中心查看处理进度。');
       setCartItemMessages({});
       setCartOpen(remainingItems.length > 0);
-      showCartToast('支付成功');
+      showCartToast(order.fulfillmentStatus === 'COMPLETED' ? '支付成功' : '支付已确认');
     } catch (error) {
       setCartMessage(errorMessage(error));
     } finally {
@@ -2833,7 +2905,7 @@ function AccountCenterPage({
     });
     return next;
   }, [bookshelf, bookshelfSort]);
-  const paidOrders = orders.filter((order) => order.status === 'PAID').length;
+  const paidOrders = orders.filter((order) => orderDisplayStatus(order) === 'COMPLETED').length;
   const latestProgress = readingProgress[0] ?? null;
   const pageTitle = mode === 'bookshelf' ? '我的书架' : mode === 'orders' ? '我的订单' : '个人中心';
 
@@ -3038,7 +3110,7 @@ function AccountCenterPage({
                         </div>
                         <div className="accountOrderMeta">
                           <b>{orderAmountText(order)}</b>
-                          <span className={`accountStatusPill status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
+                          <span className={`accountStatusPill status-${orderDisplayStatus(order).toLowerCase()}`}>{orderStatusLabel(order)}</span>
                           <small>{shortDateTime(order.createdAt)}</small>
                           <div className="accountOrderActions">
                             <button
@@ -3162,7 +3234,7 @@ function OrderDetailDialog({
             <p className="eyebrow">{orderTypeLabel(order.orderType)}</p>
             <h2 id="order-detail-title">订单详情</h2>
           </div>
-          <span className={`accountStatusPill status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
+          <span className={`accountStatusPill status-${orderDisplayStatus(order).toLowerCase()}`}>{orderStatusLabel(order)}</span>
         </header>
 
         <dl className="orderDetailMeta">
@@ -3243,7 +3315,7 @@ function PaymentPrompt({
   return (
     <section className="paymentPrompt" aria-label="订单支付确认">
       <div>
-        <h3>订单待支付</h3>
+        <h3>{payment.status === 'PROCESSING' ? '支付处理中' : payment.status === 'FAILED' ? '支付失败' : '订单待支付'}</h3>
       </div>
       {DEMO_PAYMENT_ENABLED && <p className="demoPaymentNotice">演示支付，不会产生真实扣款。</p>}
       <dl className="paymentMeta">
@@ -3260,8 +3332,8 @@ function PaymentPrompt({
           <dd>{money(payment.amountCents)}</dd>
         </div>
       </dl>
-      <button type="button" disabled={loading} onClick={onConfirm}>
-        <Sparkles size={16} /> {loading ? '确认中...' : DEMO_PAYMENT_ENABLED ? '模拟支付' : '前往支付'}
+      <button type="button" disabled={loading || payment.status === 'PROCESSING'} onClick={onConfirm}>
+        <Sparkles size={16} /> {payment.status === 'PROCESSING' ? '处理中...' : loading ? '确认中...' : DEMO_PAYMENT_ENABLED ? '模拟支付' : '前往支付'}
       </button>
     </section>
   );

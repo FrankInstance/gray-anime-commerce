@@ -71,6 +71,17 @@ async function confirmDemoPayment(paymentNo, token) {
   return api(`/api/v1/payments/${paymentNo}/demo-confirm`, { method: 'POST', token });
 }
 
+async function waitForOrder(orderNo, token, predicate, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let order;
+  while (Date.now() < deadline) {
+    order = await api(`/api/v1/orders/${orderNo}`, { token });
+    if (predicate(order)) return order;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  assert.fail(`order ${orderNo} did not reach the expected state: ${JSON.stringify(order)}`);
+}
+
 async function expectApiError(action, expectedCode, expectedMessage) {
   await assert.rejects(action, (error) => {
     assert.ok(error instanceof ApiError);
@@ -250,6 +261,8 @@ test('points recharge unlocks a paid chapter through demo payment', async () => 
 
   const payment = await confirmDemoPayment(rechargeOrder.paymentNo, token);
   assert.equal(payment.status, 'CONFIRMED');
+  await waitForOrder(rechargeOrder.orderNo, token,
+    (order) => order.status === 'PAID' && order.fulfillmentStatus === 'COMPLETED');
 
   const rechargedProfile = await api('/api/v1/users/me', { token });
   assert.equal(rechargedProfile.points, 100);
@@ -292,6 +305,8 @@ test('a product order can be paid and appears with the concrete product title', 
 
   const payment = await confirmDemoPayment(order.paymentNo, token);
   assert.equal(payment.status, 'CONFIRMED');
+  await waitForOrder(order.orderNo, token,
+    (current) => current.status === 'PAID' && current.fulfillmentStatus === 'COMPLETED');
 
   const paidOrders = await api('/api/v1/orders?page=1&size=20&status=PAID', { token });
   const paidOrder = paidOrders.items.find((entry) => entry.orderNo === order.orderNo);
@@ -355,6 +370,8 @@ test('payment ownership is enforced and repeated demo confirmation is idempotent
   );
 
   await confirmDemoPayment(order.paymentNo, ownerToken);
+  await waitForOrder(order.orderNo, ownerToken,
+    (current) => current.status === 'PAID' && current.fulfillmentStatus === 'COMPLETED');
   const repeated = await api(`/api/v1/payments/${order.paymentNo}/demo-confirm`, {
     method: 'POST',
     token: ownerToken
@@ -368,6 +385,8 @@ test('VIP activation applies the member price to product checkout', async () => 
   const { token } = await register('vip');
   const vipOrder = await api('/api/v1/vip/orders', { method: 'POST', token });
   await confirmDemoPayment(vipOrder.paymentNo, token);
+  await waitForOrder(vipOrder.orderNo, token,
+    (order) => order.status === 'PAID' && order.fulfillmentStatus === 'COMPLETED');
 
   const profile = await api('/api/v1/users/me', { token });
   assert.ok(profile.roles.includes('VIP'));

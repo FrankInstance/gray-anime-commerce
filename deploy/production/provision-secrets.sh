@@ -37,6 +37,7 @@ trap 'rm -f "$TEMP_ENV"' EXIT
 
 printf '%s\n' \
   "PUBLIC_DOMAIN=$PUBLIC_DOMAIN" \
+  "LETSENCRYPT_EMAIL=replace-with-your-email@example.com" \
   "MYSQL_ROOT_PASSWORD=$(openssl rand -hex 32)" \
   "MYSQL_PASSWORD=$(openssl rand -hex 32)" \
   "RABBITMQ_PASSWORD=$(openssl rand -hex 32)" \

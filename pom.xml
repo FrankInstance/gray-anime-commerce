@@ -13,6 +13,7 @@
 
     <modules>
         <module>backend/common</module>
+        <module>backend/eventing</module>
         <module>backend/gateway-service</module>
         <module>backend/user-service</module>
         <module>backend/content-service</module>

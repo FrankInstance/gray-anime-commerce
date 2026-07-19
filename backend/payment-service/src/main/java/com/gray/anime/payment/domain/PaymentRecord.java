@@ -16,7 +16,12 @@ public class PaymentRecord {
     private Integer amountCents;
     private String channel;
     private String status;
+    private String providerSessionId;
+    private LocalDateTime sessionExpiresAt;
+    private String failureCode;
+    private Integer attemptCount;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
     private LocalDateTime confirmedAt;
 
     public Long getId() { return id; }
@@ -33,8 +38,18 @@ public class PaymentRecord {
     public void setChannel(String channel) { this.channel = channel; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getProviderSessionId() { return providerSessionId; }
+    public void setProviderSessionId(String providerSessionId) { this.providerSessionId = providerSessionId; }
+    public LocalDateTime getSessionExpiresAt() { return sessionExpiresAt; }
+    public void setSessionExpiresAt(LocalDateTime sessionExpiresAt) { this.sessionExpiresAt = sessionExpiresAt; }
+    public String getFailureCode() { return failureCode; }
+    public void setFailureCode(String failureCode) { this.failureCode = failureCode; }
+    public Integer getAttemptCount() { return attemptCount; }
+    public void setAttemptCount(Integer attemptCount) { this.attemptCount = attemptCount; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
     public LocalDateTime getConfirmedAt() { return confirmedAt; }
     public void setConfirmedAt(LocalDateTime confirmedAt) { this.confirmedAt = confirmedAt; }
 }
