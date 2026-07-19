@@ -105,6 +105,16 @@ assert.equal(checkout.data.interactionMode, 'DEMO_CONFIRMATION');
 const payment = await request(`/api/v1/payments/${order.data.paymentNo}/demo-confirm`, { method: 'POST', token });
 assert.equal(payment.data.status, 'CONFIRMED');
 
+const settlementDeadline = Date.now() + 15_000;
+let settledOrder;
+while (Date.now() < settlementDeadline) {
+  settledOrder = await request(`/api/v1/orders/${order.data.orderNo}`, { token });
+  if (settledOrder.data.status === 'PAID' && settledOrder.data.fulfillmentStatus === 'COMPLETED') break;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+assert.equal(settledOrder?.data.status, 'PAID');
+assert.equal(settledOrder?.data.fulfillmentStatus, 'COMPLETED');
+
 phase('verifying settled account state');
 const finalProfile = await request('/api/v1/users/me', { token });
 assert.equal(finalProfile.data.points, 100);

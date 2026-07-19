@@ -10,10 +10,13 @@ public record OrderView(
         Integer totalCents,
         Integer totalPoints,
         String status,
+        String fulfillmentStatus,
+        String cancelReason,
         String paymentNo,
         String paymentStatus,
         String paymentChannel,
         LocalDateTime paidAt,
+        LocalDateTime cancelledAt,
         LocalDateTime createdAt,
         List<OrderItemView> items
 ) {

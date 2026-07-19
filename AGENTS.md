@@ -22,3 +22,8 @@
 - 密码、私钥、访问令牌和第三方密钥不得提交到 Git。开发密钥只能由脚本在本地生成，生产密钥必须从部署平台 Secret 或密钥管理服务注入。
 - 身份与权限必须在服务端验证，不能信任前端状态、客户端身份头或仅由 UI 隐藏按钮形成的权限限制。
 - 涉及认证、订单、支付、库存和用户资产的修改，必须补充失败路径与越权路径测试，并运行核心回归后再提交。
+
+## Maven Repository
+
+- 在本项目运行 Maven 时，统一显式使用 `%USERPROFILE%\.m2\repository` 作为本地仓库，例如 `mvn -Dmaven.repo.local="$env:USERPROFILE\.m2\repository" test`；不要使用 Maven 安装目录下的 `D:\apache-maven-3.9.11\maven_repo`，避免权限错误和缓存位置不一致。
+- Docker 镜像通过 `backend/*/target/*.jar` 复制服务产物。修改 Java 源码后，在执行 `docker compose up --build` 前必须先运行 Maven `package`，并确认 JAR 的更新时间不早于源码。

@@ -16,7 +16,9 @@ test('Grafana dashboard is valid and covers the operational core', async () => {
     'Login throttles / 1h',
     'Payments confirmed / 1h',
     'Request throughput',
-    'Request latency p95'
+    'Request latency p95',
+    'Outbox backlog',
+    'Dead outbox events'
   ]) {
     assert.ok(titles.has(title), `dashboard must contain ${title}`);
   }
@@ -45,7 +47,9 @@ test('Prometheus scrapes every application service and defines core alerts', asy
     'GrayHighServerErrorRate',
     'GrayHighRequestLatency',
     'GrayLoginThrottleSpike',
-    'GrayPaymentServerErrors'
+    'GrayPaymentServerErrors',
+    'GrayOutboxBacklog',
+    'GrayOutboxDeadEvents'
   ]) {
     assert.match(alerts, new RegExp(`alert: ${alert}`));
   }
@@ -86,18 +90,54 @@ test('systemd timers use hardened services without relying on executable file mo
   }
 });
 
-test('public deployment exposes only the TLS reverse proxy', async () => {
+test('public deployment exposes only Nginx and supports HTTP bootstrap plus TLS', async () => {
   const compose = await read('docker-compose.public.yml');
-  const caddy = await read('deploy/caddy/Caddyfile');
+  const http = await read('deploy/nginx/public-http.conf.template');
+  const tls = await read('deploy/nginx/public-tls.conf.template');
+  const app = await read('deploy/nginx/public-app.inc');
+  const selector = await read('deploy/nginx/40-gray-public-config.sh');
 
-  assert.equal((compose.match(/ports: !reset \[\]/g) ?? []).length, 8);
+  assert.equal((compose.match(/ports: !reset \[\]/g) ?? []).length, 7);
   assert.match(compose, /PUBLIC_DOMAIN: \$\{PUBLIC_DOMAIN:\?PUBLIC_DOMAIN must be supplied/);
   assert.match(compose, /- "80:80"/);
   assert.match(compose, /- "443:443"/);
-  assert.match(caddy, /^\{\$PUBLIC_DOMAIN\}/m);
-  assert.match(caddy, /^www\.\{\$PUBLIC_DOMAIN\}/m);
-  assert.match(caddy, /redir https:\/\/\{\$PUBLIC_DOMAIN\}\{uri\} permanent/);
-  assert.match(caddy, /reverse_proxy frontend:80/);
+  assert.doesNotMatch(compose, /caddy/i);
+  assert.match(http, /\.well-known\/acme-challenge/);
+  assert.match(tls, /listen 443 ssl/);
+  assert.match(tls, /return 301 https:\/\/\$\{PUBLIC_DOMAIN\}\$request_uri/);
+  assert.match(tls, /Strict-Transport-Security/);
+  assert.match(app, /proxy_buffering off/);
+  assert.match(app, /proxy_set_header X-Forwarded-For \$remote_addr/);
+  assert.doesNotMatch(app, /\$proxy_add_x_forwarded_for/);
+  assert.match(selector, /fullchain\.pem/);
+  assert.match(selector, /nginx -t/);
+});
+
+test('certificate scripts use webroot renewal and reload Nginx without storing keys in Git', async () => {
+  const issue = await read('deploy/production/issue-certificate.sh');
+  const install = await read('deploy/production/install-certbot-renewal.sh');
+  const hook = await read('deploy/production/certbot-deploy-hook.sh');
+
+  assert.match(issue, /certbot certonly --webroot/);
+  assert.match(issue, /--domain "\$PUBLIC_DOMAIN" --domain "www\.\$PUBLIC_DOMAIN"/);
+  assert.match(issue, /\/opt\/gray\/certbot\/www/);
+  assert.match(install, /systemctl enable --now certbot\.timer/);
+  assert.match(hook, /frontend nginx -s reload/);
+});
+
+test('payment migration is additive, repeatable, and preserves existing business rows', async () => {
+  const migration = await read('deploy/mysql/migrations/20260719-payment-state-machine.sql');
+
+  assert.match(migration, /SET NAMES utf8mb4/);
+  assert.match(migration, /CREATE PROCEDURE gray_add_column_if_missing/);
+  assert.match(migration, /FROM information_schema\.columns/);
+  assert.match(migration, /CALL gray_add_column_if_missing\('orders', 'fulfillment_status'/);
+  assert.match(migration, /UPDATE payment SET status = 'CREATED' WHERE status = 'PENDING' AND channel = 'UNASSIGNED'/);
+  assert.match(migration, /WHERE fulfillment_status = 'NOT_REQUIRED'[\s\S]*status IN \('PAID', 'PENDING_PAYMENT'\)/);
+  assert.match(migration, /gray_add_index_if_missing/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS inbox_event/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS payment_transition/);
+  assert.doesNotMatch(migration, /\bTRUNCATE\b|DROP TABLE|DELETE FROM (orders|payment|app_user)/i);
 });
 
 test('production secret provisioning is idempotent and keeps values off disk until runtime', async () => {

@@ -62,20 +62,44 @@ jobs:
           MINIO_ROOT_PASSWORD: ci-minio-password
           AUTH_LOGIN_THROTTLE_SECRET: ci-validation-secret-with-at-least-32-characters
           CORS_ALLOWED_ORIGIN_PATTERNS: https://demo.example.com
+          PUBLIC_DOMAIN: demo.example.com
+          LETSENCRYPT_EMAIL: ci@example.com
         run: |
           npm run test:operations
           node --check deploy/operations/demo-smoke.mjs
           bash -n deploy/operations/mysql-backup.sh
           bash -n deploy/operations/mysql-restore-verify.sh
+          bash -n deploy/production/issue-certificate.sh
+          bash -n deploy/production/install-certbot-renewal.sh
+          bash -n deploy/production/certbot-deploy-hook.sh
           docker compose -f docker-compose.yml -f docker-compose.observability.yml config --quiet
           docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.observability.yml config --quiet
           docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.observability.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.public.yml config --quiet
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Build frontend assets
         run: npm run build:local
+
+      - name: Validate public Nginx HTTP and TLS configurations
+        run: |
+          docker build -f deploy/docker/frontend.Dockerfile -t gray-frontend-nginx-ci .
+          docker run --rm \
+            -e GRAY_PUBLIC_ENTRYPOINT=true \
+            -e PUBLIC_DOMAIN=demo.example.com \
+            gray-frontend-nginx-ci nginx -t
+          mkdir -p /tmp/gray-letsencrypt/live/demo.example.com
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -subj '/CN=demo.example.com' \
+            -keyout /tmp/gray-letsencrypt/live/demo.example.com/privkey.pem \
+            -out /tmp/gray-letsencrypt/live/demo.example.com/fullchain.pem
+          docker run --rm \
+            -e GRAY_PUBLIC_ENTRYPOINT=true \
+            -e PUBLIC_DOMAIN=demo.example.com \
+            -v /tmp/gray-letsencrypt:/etc/letsencrypt:ro \
+            gray-frontend-nginx-ci nginx -t
 
       - name: Package backend services
         run: mvn --batch-mode --no-transfer-progress -DskipTests package

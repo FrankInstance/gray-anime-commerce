@@ -3129,6 +3129,25 @@ button.secondary,
   color: var(--cyan);
 }
 
+.accountStatusPill.status-processing {
+  border-color: rgba(101, 245, 255, 0.46);
+  background: rgba(101, 245, 255, 0.12);
+  color: var(--cyan);
+}
+
+.accountStatusPill.status-fulfillment_failed,
+.accountStatusPill.status-expired {
+  border-color: rgba(255, 154, 92, 0.42);
+  background: rgba(255, 154, 92, 0.1);
+  color: #ffc7a5;
+}
+
+.accountStatusPill.status-completed {
+  border-color: rgba(215, 255, 74, 0.34);
+  background: rgba(215, 255, 74, 0.1);
+  color: var(--acid);
+}
+
 .accountPayButton {
   min-height: 34px;
   padding: 0 18px;

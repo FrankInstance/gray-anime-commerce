@@ -19,6 +19,8 @@ Required non-secret deployment identity values:
 - `JWT_AUDIENCE`
 - `JWT_KEY_ID`
 - `CORS_ALLOWED_ORIGIN_PATTERNS` as one or more exact HTTPS origins
+- `PUBLIC_DOMAIN`, for example `qicaoji.icu`
+- `LETSENCRYPT_EMAIL`, used only for certificate expiry notices
 
 AI is disabled by default. When it is enabled, also provide:
 
@@ -59,7 +61,52 @@ For a public single-host deployment, set `PUBLIC_DOMAIN` to a DNS name that reso
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.demo.yml -f docker-compose.public.yml up -d --build --wait
 ```
 
-The public overlay terminates HTTPS with Caddy and removes every direct host port from MySQL, Redis, RabbitMQ, Nacos, MinIO, the gateway, and the frontend. Only Caddy publishes ports 80 and 443. Keep SSH restricted separately with the cloud security group and host firewall.
+The public overlay exposes only the frontend Nginx on ports 80 and 443. MySQL, Redis, RabbitMQ, Nacos, MinIO, Qdrant, and the gateway remain internal. Nginx serves both browser applications, proxies `/api`, disables buffering for assistant SSE, replaces client-supplied forwarding headers, and redirects `www` permanently to the primary domain.
+
+## Database migration before deployment
+
+Back up the live database and verify that the archive can be restored before applying the payment-state migration. Do not remove the MySQL volume.
+
+```bash
+sudo -u gray bash deploy/operations/mysql-backup.sh
+sudo -u gray bash deploy/operations/mysql-restore-verify.sh
+sudo bash deploy/production/migrate-payment-state.sh
+```
+
+The migration runner copies the UTF-8 SQL into MySQL, applies it through the production Compose configuration, and verifies all nine columns plus both event tables. The migration is idempotent and preserves existing users, orders, and payments. Existing unassigned pending payments become `CREATED`; old outbox rows that do not use the new event envelope are retained as `DEAD` for audit rather than republished.
+
+## First certificate and renewal
+
+Install Certbot on the Ubuntu host, set a real `LETSENCRYPT_EMAIL` in `/etc/gray/gray.env`, and ensure both the root and `www` DNS records point to this host. Start the public stack once; without a certificate, Nginx automatically loads its HTTP challenge configuration.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y certbot
+sudo install -d -m 0755 /opt/gray/certbot/www
+docker compose --env-file /etc/gray/gray.env \
+  -f docker-compose.yml -f docker-compose.production.yml \
+  -f docker-compose.demo.yml -f docker-compose.public.yml \
+  up -d --build --wait
+sudo bash deploy/production/issue-certificate.sh
+sudo bash deploy/production/install-certbot-renewal.sh
+sudo certbot renew --dry-run
+```
+
+The certificate and private key stay under `/etc/letsencrypt` on the host and are mounted read-only into Nginx. The Certbot systemd timer renews certificates automatically; its deploy hook reloads Nginx gracefully only after a successful renewal.
+
+To inspect the active configuration and certificate:
+
+```bash
+docker compose --env-file /etc/gray/gray.env \
+  -f docker-compose.yml -f docker-compose.production.yml \
+  -f docker-compose.demo.yml -f docker-compose.public.yml \
+  exec -T frontend nginx -T
+sudo certbot certificates
+curl -I https://qicaoji.icu
+curl -I https://www.qicaoji.icu
+```
+
+If certificate issuance fails, Nginx remains in HTTP bootstrap mode. Check DNS, ports 80/443, `/.well-known/acme-challenge/`, and Certbot logs, then rerun the idempotent issue script. To roll back the application, check out the previous release and rebuild the same Compose project; keep `/etc/letsencrypt` and the database volume in place.
 
 `docker-compose.demo.yml` switches every backend service to the `demo` profile and explicitly enables the Demo payment provider. The application refuses to start if Demo payment is combined with `prod`, `local`, or `test`. The legacy `mock-confirm` endpoint is not registered in a public Demo deployment.
 
@@ -84,7 +131,7 @@ The Demo user service also enables a persistent cleanup schedule. Its first star
 
 Do not put real values in a tracked `.env` file. This overlay does not replace host firewalling, TLS termination, Nacos hardening, or a managed secret service.
 
-Use a fresh production database and volume. A database previously started with the `local` profile may already contain seeded development accounts, and changing profiles does not delete existing rows.
+For a new production installation, use a clean database. For an existing deployment, preserve the volume, take and verify a backup, then apply the tracked migrations in order. A database previously started with the `local` profile may contain seeded development accounts; changing profiles does not delete those rows automatically.
 
 ## Observability overlay
 

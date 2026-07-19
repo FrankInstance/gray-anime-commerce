@@ -6,6 +6,7 @@ public record CheckoutSessionView(
         String provider,
         String sessionId,
         String paymentNo,
+        String paymentStatus,
         String interactionMode,
         String redirectUrl,
         LocalDateTime expiresAt

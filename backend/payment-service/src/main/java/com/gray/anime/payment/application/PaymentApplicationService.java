@@ -1,220 +1,242 @@
 package com.gray.anime.payment.application;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.gray.anime.common.api.TraceIds;
 import com.gray.anime.common.exception.BizException;
 import com.gray.anime.common.security.CurrentUser;
+import com.gray.anime.eventing.DomainEventPublisher;
+import com.gray.anime.eventing.EventRoutes;
+import com.gray.anime.eventing.PaymentConfirmedEvent;
 import com.gray.anime.payment.application.provider.PaymentCheckout;
 import com.gray.anime.payment.application.provider.PaymentProvider;
 import com.gray.anime.payment.application.provider.ProviderCheckoutSession;
-import com.gray.anime.payment.domain.*;
-import com.gray.anime.payment.infrastructure.client.InventoryClient;
-import com.gray.anime.payment.infrastructure.mapper.*;
+import com.gray.anime.payment.domain.OrderRecord;
+import com.gray.anime.payment.domain.PaymentRecord;
+import com.gray.anime.payment.domain.PaymentStatus;
+import com.gray.anime.payment.infrastructure.mapper.OrderMapper;
+import com.gray.anime.payment.infrastructure.mapper.PaymentMapper;
 import com.gray.anime.payment.infrastructure.provider.DemoPaymentProvider;
 import com.gray.anime.payment.interfaces.dto.CheckoutSessionRequest;
 import com.gray.anime.payment.interfaces.dto.CheckoutSessionView;
 import com.gray.anime.payment.interfaces.dto.PaymentView;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Objects;
 
 @Service
 public class PaymentApplicationService {
     private final PaymentMapper paymentMapper;
     private final OrderMapper orderMapper;
-    private final OrderItemMapper itemMapper;
-    private final AppUserMapper userMapper;
-    private final PointsLedgerMapper pointsLedgerMapper;
-    private final OutboxEventMapper outboxMapper;
-    private final InventoryClient inventoryClient;
+    private final JdbcTemplate jdbc;
+    private final DomainEventPublisher events;
     private final PaymentProvider paymentProvider;
+    private final MeterRegistry meters;
 
-    public PaymentApplicationService(PaymentMapper paymentMapper, OrderMapper orderMapper, OrderItemMapper itemMapper,
-                                     AppUserMapper userMapper, PointsLedgerMapper pointsLedgerMapper, OutboxEventMapper outboxMapper,
-                                     InventoryClient inventoryClient, PaymentProvider paymentProvider) {
+    public PaymentApplicationService(PaymentMapper paymentMapper, OrderMapper orderMapper, JdbcTemplate jdbc,
+                                     DomainEventPublisher events, PaymentProvider paymentProvider,
+                                     MeterRegistry meters) {
         this.paymentMapper = paymentMapper;
         this.orderMapper = orderMapper;
-        this.itemMapper = itemMapper;
-        this.userMapper = userMapper;
-        this.pointsLedgerMapper = pointsLedgerMapper;
-        this.outboxMapper = outboxMapper;
-        this.inventoryClient = inventoryClient;
+        this.jdbc = jdbc;
+        this.events = events;
         this.paymentProvider = paymentProvider;
+        this.meters = meters;
     }
 
     @Transactional
     public CheckoutSessionView createCheckoutSession(CurrentUser user, CheckoutSessionRequest request) {
-        PaymentRecord payment = ownedPayment(user, request.paymentNo());
-        if ("CONFIRMED".equals(payment.getStatus())) {
+        LockedPayment locked = lock(user, request.paymentNo());
+        PaymentRecord payment = locked.payment();
+        OrderRecord order = locked.order();
+        validatePaymentConsistency(payment, order);
+        requirePayableOrder(order);
+
+        PaymentStatus current = PaymentStatus.from(payment.getStatus());
+        if (current == PaymentStatus.CONFIRMED) {
             throw new BizException("PAYMENT_ALREADY_CONFIRMED", "订单已支付");
         }
-        OrderRecord order = relatedOrder(payment, user.id());
-        validatePaymentConsistency(payment, order);
-        if (!"PENDING".equals(payment.getStatus()) || !"PENDING_PAYMENT".equals(order.getStatus())) {
+        if (current == PaymentStatus.PENDING && hasActiveSession(payment)) {
+            return checkoutView(payment, null);
+        }
+        if (current == PaymentStatus.PENDING) {
+            LocalDateTime failedAt = LocalDateTime.now();
+            updateStatus(payment, PaymentStatus.PENDING, PaymentStatus.FAILED, "SESSION_EXPIRED", failedAt);
+            recordTransition(payment.getPaymentNo(), PaymentStatus.PENDING, PaymentStatus.FAILED,
+                    "SESSION_EXPIRED", "SESSION_EXPIRED:" + payment.getPaymentNo() + ":" + payment.getAttemptCount());
+            payment.setStatus(PaymentStatus.FAILED.name());
+            payment.setFailureCode("SESSION_EXPIRED");
+            payment.setUpdatedAt(failedAt);
+            current = PaymentStatus.FAILED;
+        }
+        if (current != PaymentStatus.CREATED && current != PaymentStatus.FAILED && current != PaymentStatus.PENDING) {
             throw paymentStateError(payment, order);
         }
 
         ProviderCheckoutSession session = paymentProvider.createSession(
-                new PaymentCheckout(payment.getPaymentNo(), payment.getOrderNo(), payment.getAmountCents())
-        );
-        validateProviderSession(payment, session);
+                new PaymentCheckout(payment.getPaymentNo(), payment.getOrderNo(), payment.getAmountCents()));
+        validateProviderSession(session);
 
-        int assigned = paymentMapper.update(null, new LambdaUpdateWrapper<PaymentRecord>()
-                .eq(PaymentRecord::getPaymentNo, payment.getPaymentNo())
-                .eq(PaymentRecord::getUserId, user.id())
-                .eq(PaymentRecord::getStatus, "PENDING")
-                .set(PaymentRecord::getChannel, paymentProvider.code()));
+        LocalDateTime now = LocalDateTime.now();
+        int assigned = jdbc.update("""
+                UPDATE payment
+                SET status='PENDING', channel=?, provider_session_id=?, session_expires_at=?, failure_code=NULL,
+                    attempt_count=attempt_count + 1, updated_at=?
+                WHERE payment_no=? AND user_id=? AND status=?
+                """, paymentProvider.code(), session.sessionId(), session.expiresAt(), now,
+                payment.getPaymentNo(), user.id(), current.name());
         if (assigned == 0) {
             throw new BizException("PAYMENT_STATE_CHANGED", "支付状态已变化，请刷新订单");
         }
+        recordTransition(payment.getPaymentNo(), current, PaymentStatus.PENDING, "CHECKOUT_SESSION",
+                "SESSION:" + session.sessionId());
+
+        payment.setStatus(PaymentStatus.PENDING.name());
         payment.setChannel(paymentProvider.code());
-        return new CheckoutSessionView(
-                session.provider(),
-                session.sessionId(),
-                payment.getPaymentNo(),
-                session.interactionMode(),
-                session.redirectUrl(),
-                session.expiresAt()
-        );
+        payment.setProviderSessionId(session.sessionId());
+        payment.setSessionExpiresAt(session.expiresAt());
+        payment.setUpdatedAt(now);
+        return checkoutView(payment, session);
     }
 
     @Transactional
     public PaymentView confirmDemo(CurrentUser user, String paymentNo) {
         requireDemoProvider();
-        PaymentRecord payment = ownedPayment(user, paymentNo);
-        if (!"CONFIRMED".equals(payment.getStatus()) && !DemoPaymentProvider.CODE.equals(payment.getChannel())) {
-            throw new BizException("PAYMENT_SESSION_REQUIRED", "请先创建支付会话");
-        }
-        return settlePayment(payment, user.id(), DemoPaymentProvider.CODE);
+        return confirm(user, paymentNo, DemoPaymentProvider.CODE, "DEMO_CONFIRM:" + paymentNo);
     }
 
     @Transactional
     public PaymentView confirmLegacyMock(CurrentUser user, String paymentNo) {
         requireDemoProvider();
-        PaymentRecord payment = ownedPayment(user, paymentNo);
-        if (!"CONFIRMED".equals(payment.getStatus()) && !DemoPaymentProvider.CODE.equals(payment.getChannel())) {
-            int assigned = paymentMapper.update(null, new LambdaUpdateWrapper<PaymentRecord>()
-                    .eq(PaymentRecord::getPaymentNo, payment.getPaymentNo())
-                    .eq(PaymentRecord::getUserId, user.id())
-                    .eq(PaymentRecord::getStatus, "PENDING")
-                    .set(PaymentRecord::getChannel, DemoPaymentProvider.CODE));
-            if (assigned == 0) {
-                throw new BizException("PAYMENT_STATE_CHANGED", "支付状态已变化，请刷新订单");
-            }
-            payment.setChannel(DemoPaymentProvider.CODE);
+        PaymentRecord current = ownedPayment(user, paymentNo);
+        if (PaymentStatus.from(current.getStatus()) == PaymentStatus.CREATED) {
+            createCheckoutSession(user, new CheckoutSessionRequest(paymentNo));
         }
-        return settlePayment(payment, user.id(), DemoPaymentProvider.CODE);
+        return confirm(user, paymentNo, DemoPaymentProvider.CODE, "LEGACY_CONFIRM:" + paymentNo);
     }
 
-    private PaymentView settlePayment(PaymentRecord payment, Long userId, String providerCode) {
-        if ("CONFIRMED".equals(payment.getStatus())) {
+    @Transactional
+    public PaymentView markFailed(CurrentUser user, String paymentNo, String providerCode, String failureCode,
+                                  String providerEventId) {
+        LockedPayment locked = lock(user, paymentNo);
+        PaymentRecord payment = locked.payment();
+        if (PaymentStatus.from(payment.getStatus()) == PaymentStatus.FAILED) {
             return view(payment);
         }
-        OrderRecord order = relatedOrder(payment, userId);
-        validatePaymentConsistency(payment, order);
-        if (!"PENDING".equals(payment.getStatus())) {
-            throw paymentStateError(payment, order);
-        }
-        if (!providerCode.equals(payment.getChannel())) {
+        requireTransition(payment, PaymentStatus.FAILED);
+        if (!Objects.equals(providerCode, payment.getChannel())) {
             throw new BizException("PAYMENT_PROVIDER_MISMATCH", "支付渠道不匹配");
         }
-
-        LocalDateTime confirmedAt = LocalDateTime.now();
-        int confirmed = paymentMapper.update(null, new LambdaUpdateWrapper<PaymentRecord>()
-                .eq(PaymentRecord::getPaymentNo, payment.getPaymentNo())
-                .eq(PaymentRecord::getUserId, userId)
-                .eq(PaymentRecord::getStatus, "PENDING")
-                .eq(PaymentRecord::getChannel, providerCode)
-                .set(PaymentRecord::getStatus, "CONFIRMED")
-                .set(PaymentRecord::getConfirmedAt, confirmedAt));
-        if (confirmed == 0) {
-            PaymentRecord latest = ownedPayment(userId, payment.getPaymentNo());
-            if ("CONFIRMED".equals(latest.getStatus())) {
-                return view(latest);
-            }
-            throw paymentStateError(latest, relatedOrder(latest, userId));
-        }
-
-        boolean newlyPaid = false;
-        if ("PENDING_PAYMENT".equals(order.getStatus())) {
-            int updated = orderMapper.update(null, new LambdaUpdateWrapper<OrderRecord>()
-                    .eq(OrderRecord::getOrderNo, order.getOrderNo())
-                    .eq(OrderRecord::getUserId, userId)
-                    .eq(OrderRecord::getStatus, "PENDING_PAYMENT")
-                    .set(OrderRecord::getStatus, "PAID")
-                    .set(OrderRecord::getUpdatedAt, confirmedAt));
-            if (updated == 0) {
-                OrderRecord latest = relatedOrder(payment, userId);
-                if (!"PAID".equals(latest.getStatus())) {
-                    throw paymentStateError(payment, latest);
-                }
-                order = latest;
-            } else {
-                order.setStatus("PAID");
-                order.setUpdatedAt(confirmedAt);
-                newlyPaid = true;
-            }
-        } else if (!"PAID".equals(order.getStatus())) {
-            throw paymentStateError(payment, order);
-        }
-
-        payment.setStatus("CONFIRMED");
-        payment.setConfirmedAt(confirmedAt);
-        if (newlyPaid) {
-            applyPaidOrderBenefits(order);
-        }
-        outbox(
-                "Payment",
-                payment.getPaymentNo(),
-                "PaymentConfirmed",
-                "{\"paymentNo\":\"" + payment.getPaymentNo() + "\",\"orderNo\":\"" + payment.getOrderNo()
-                        + "\",\"provider\":\"" + providerCode + "\"}"
-        );
+        LocalDateTime now = LocalDateTime.now();
+        updateStatus(payment, PaymentStatus.PENDING, PaymentStatus.FAILED, failureCode, now);
+        recordTransition(paymentNo, PaymentStatus.PENDING, PaymentStatus.FAILED, "PROVIDER_FAILURE",
+                "PROVIDER:" + providerEventId);
+        payment.setStatus(PaymentStatus.FAILED.name());
+        payment.setFailureCode(failureCode);
+        payment.setUpdatedAt(now);
         return view(payment);
     }
 
-    private void applyPaidOrderBenefits(OrderRecord order) {
-        if ("PRODUCT".equals(order.getOrderType())) {
-            confirmReservations(order.getId());
+    private PaymentView confirm(CurrentUser user, String paymentNo, String providerCode, String idempotencyKey) {
+        LockedPayment locked = lock(user, paymentNo);
+        PaymentRecord payment = locked.payment();
+        OrderRecord order = locked.order();
+        if (PaymentStatus.from(payment.getStatus()) == PaymentStatus.CONFIRMED) {
+            return view(payment);
         }
-        if ("VIP".equals(order.getOrderType())) {
-            activateVip(order.getUserId());
+        validatePaymentConsistency(payment, order);
+        requirePayableOrder(order);
+        if (PaymentStatus.from(payment.getStatus()) == PaymentStatus.CREATED) {
+            throw new BizException("PAYMENT_SESSION_REQUIRED", "请先发起支付");
         }
-        if ("POINTS".equals(order.getOrderType())) {
-            rechargePoints(order.getUserId(), order.getTotalPoints(), order.getOrderNo());
+        requireTransition(payment, PaymentStatus.CONFIRMED);
+        if (!providerCode.equals(payment.getChannel())) {
+            throw new BizException("PAYMENT_PROVIDER_MISMATCH", "支付渠道不匹配");
         }
+        if (!hasActiveSession(payment)) {
+            throw new BizException("PAYMENT_SESSION_EXPIRED", "支付会话已过期，请重新发起支付");
+        }
+
+        LocalDateTime confirmedAt = LocalDateTime.now();
+        updateStatus(payment, PaymentStatus.PENDING, PaymentStatus.CONFIRMED, null, confirmedAt);
+        recordTransition(paymentNo, PaymentStatus.PENDING, PaymentStatus.CONFIRMED, "PROVIDER_CONFIRM", idempotencyKey);
+        events.publish(EventRoutes.PAYMENT_CONFIRMED, "Payment", paymentNo,
+                new PaymentConfirmedEvent(paymentNo, payment.getOrderNo(), user.id(), payment.getAmountCents(),
+                        providerCode, confirmedAt));
+
+        payment.setStatus(PaymentStatus.CONFIRMED.name());
+        payment.setConfirmedAt(confirmedAt);
+        payment.setUpdatedAt(confirmedAt);
+        return view(payment);
+    }
+
+    private LockedPayment lock(CurrentUser user, String paymentNo) {
+        requireUser(user);
+        PaymentRecord snapshot = ownedPayment(user, paymentNo);
+        OrderRecord order = orderMapper.lockOwned(snapshot.getOrderNo(), user.id());
+        if (order == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        PaymentRecord payment = paymentMapper.lockOwned(paymentNo, user.id());
+        if (payment == null) {
+            throw new BizException("PAYMENT_NOT_FOUND", "Payment not found");
+        }
+        return new LockedPayment(order, payment);
     }
 
     private PaymentRecord ownedPayment(CurrentUser user, String paymentNo) {
-        if (user == null || user.id() == null || user.id() <= 0) {
-            throw new BizException("UNAUTHORIZED", "Login required");
-        }
-        return ownedPayment(user.id(), paymentNo);
-    }
-
-    private PaymentRecord ownedPayment(Long userId, String paymentNo) {
-        PaymentRecord payment = paymentMapper.selectOne(new LambdaQueryWrapper<PaymentRecord>()
+        requireUser(user);
+        PaymentRecord payment = paymentMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PaymentRecord>()
                 .eq(PaymentRecord::getPaymentNo, paymentNo)
-                .eq(PaymentRecord::getUserId, userId)
+                .eq(PaymentRecord::getUserId, user.id())
                 .last("limit 1"));
-        if (payment == null || !Objects.equals(payment.getUserId(), userId)) {
+        if (payment == null) {
             throw new BizException("PAYMENT_NOT_FOUND", "Payment not found");
         }
         return payment;
     }
 
-    private OrderRecord relatedOrder(PaymentRecord payment, Long userId) {
-        OrderRecord order = orderMapper.selectOne(new LambdaQueryWrapper<OrderRecord>()
-                .eq(OrderRecord::getOrderNo, payment.getOrderNo())
-                .eq(OrderRecord::getUserId, userId)
-                .last("limit 1"));
-        if (order == null || !Objects.equals(order.getUserId(), userId)) {
-            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+    private void updateStatus(PaymentRecord payment, PaymentStatus expected, PaymentStatus next,
+                              String failureCode, LocalDateTime now) {
+        int updated = jdbc.update("""
+                UPDATE payment SET status=?, failure_code=?, updated_at=?,
+                    confirmed_at=CASE WHEN ?='CONFIRMED' THEN ? ELSE confirmed_at END
+                WHERE payment_no=? AND user_id=? AND status=?
+                """, next.name(), failureCode, now, next.name(), now,
+                payment.getPaymentNo(), payment.getUserId(), expected.name());
+        if (updated == 0) {
+            throw new BizException("PAYMENT_STATE_CHANGED", "支付状态已变化，请刷新订单");
         }
-        return order;
+    }
+
+    private void recordTransition(String paymentNo, PaymentStatus from, PaymentStatus to,
+                                  String trigger, String idempotencyKey) {
+        jdbc.update("""
+                INSERT IGNORE INTO payment_transition
+                    (payment_no, from_status, to_status, trigger_type, idempotency_key, trace_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+                """, paymentNo, from == null ? null : from.name(), to.name(), trigger,
+                idempotencyKey, TraceIds.current());
+        meters.counter("gray.payment.transition", "from", from == null ? "NONE" : from.name(),
+                "to", to.name(), "trigger", trigger).increment();
+    }
+
+    private void requireTransition(PaymentRecord payment, PaymentStatus next) {
+        PaymentStatus current = PaymentStatus.from(payment.getStatus());
+        if (!current.canTransitionTo(next)) {
+            throw new BizException("PAYMENT_STATUS_INVALID", "当前支付状态不允许该操作");
+        }
+    }
+
+    private void requirePayableOrder(OrderRecord order) {
+        if (!"PENDING_PAYMENT".equals(order.getStatus())) {
+            if ("PAID".equals(order.getStatus())) {
+                throw new BizException("PAYMENT_ALREADY_CONFIRMED", "订单已支付");
+            }
+            throw new BizException("ORDER_CANCELLED", "订单已取消或已过期");
+        }
     }
 
     private void validatePaymentConsistency(PaymentRecord payment, OrderRecord order) {
@@ -225,13 +247,25 @@ public class PaymentApplicationService {
         }
     }
 
-    private void validateProviderSession(PaymentRecord payment, ProviderCheckoutSession session) {
-        if (session == null
-                || !paymentProvider.code().equals(session.provider())
-                || session.sessionId() == null
-                || session.sessionId().isBlank()) {
+    private boolean hasActiveSession(PaymentRecord payment) {
+        return payment.getProviderSessionId() != null && !payment.getProviderSessionId().isBlank()
+                && payment.getSessionExpiresAt() != null
+                && payment.getSessionExpiresAt().isAfter(LocalDateTime.now());
+    }
+
+    private void validateProviderSession(ProviderCheckoutSession session) {
+        if (session == null || !paymentProvider.code().equals(session.provider())
+                || session.sessionId() == null || session.sessionId().isBlank()
+                || session.expiresAt() == null || !session.expiresAt().isAfter(LocalDateTime.now())) {
             throw new BizException("PAYMENT_PROVIDER_ERROR", "支付服务返回无效结果");
         }
+    }
+
+    private CheckoutSessionView checkoutView(PaymentRecord payment, ProviderCheckoutSession created) {
+        String mode = created == null ? DemoPaymentProvider.INTERACTION_MODE : created.interactionMode();
+        String redirect = created == null ? null : created.redirectUrl();
+        return new CheckoutSessionView(payment.getChannel(), payment.getProviderSessionId(), payment.getPaymentNo(),
+                payment.getStatus(), mode, redirect, payment.getSessionExpiresAt());
     }
 
     private void requireDemoProvider() {
@@ -240,72 +274,28 @@ public class PaymentApplicationService {
         }
     }
 
-    private BizException paymentStateError(PaymentRecord payment, OrderRecord order) {
-        if ("CANCELLED".equals(payment.getStatus()) || "CANCELLED".equals(order.getStatus())) {
-            return new BizException("ORDER_CANCELLED", "Order has been cancelled");
+    private void requireUser(CurrentUser user) {
+        if (user == null || user.id() == null || user.id() <= 0) {
+            throw new BizException("UNAUTHORIZED", "Login required");
         }
-        if ("CONFIRMED".equals(payment.getStatus()) || "PAID".equals(order.getStatus())) {
+    }
+
+    private BizException paymentStateError(PaymentRecord payment, OrderRecord order) {
+        PaymentStatus status = PaymentStatus.from(payment.getStatus());
+        if (status == PaymentStatus.CANCELLED || status == PaymentStatus.EXPIRED || "CANCELLED".equals(order.getStatus())) {
+            return new BizException("ORDER_CANCELLED", "订单已取消或已过期");
+        }
+        if (status == PaymentStatus.CONFIRMED || "PAID".equals(order.getStatus())) {
             return new BizException("PAYMENT_ALREADY_CONFIRMED", "订单已支付");
         }
-        return new BizException("ORDER_STATUS_INVALID", "Order cannot be paid");
-    }
-
-    private void confirmReservations(Long orderId) {
-        List<OrderItemRecord> items = itemMapper.selectList(new LambdaQueryWrapper<OrderItemRecord>().eq(OrderItemRecord::getOrderId, orderId));
-        for (OrderItemRecord item : items) {
-            if (item.getReservationNo() != null && !item.getReservationNo().isBlank()) {
-                inventoryClient.confirm(item.getReservationNo());
-            }
-        }
-    }
-
-    private void activateVip(Long userId) {
-        AppUserRecord user = userMapper.selectById(userId);
-        if (user == null) {
-            return;
-        }
-        LocalDateTime base = user.getVipUntil() == null || user.getVipUntil().isBefore(LocalDateTime.now())
-                ? LocalDateTime.now()
-                : user.getVipUntil();
-        user.setVipUntil(base.plusMonths(1));
-        user.setUpdatedAt(LocalDateTime.now());
-        userMapper.updateById(user);
-    }
-
-    private void rechargePoints(Long userId, Integer points, String orderNo) {
-        if (points == null || points <= 0) {
-            return;
-        }
-        AppUserRecord user = userMapper.selectById(userId);
-        if (user == null) {
-            return;
-        }
-        user.setPoints((user.getPoints() == null ? 0 : user.getPoints()) + points);
-        user.setUpdatedAt(LocalDateTime.now());
-        userMapper.updateById(user);
-
-        PointsLedgerRecord ledger = new PointsLedgerRecord();
-        ledger.setUserId(userId);
-        ledger.setAmount(points);
-        ledger.setReason("POINTS_RECHARGE");
-        ledger.setBizKey("POINTS_ORDER:" + orderNo);
-        ledger.setCreatedAt(LocalDateTime.now());
-        pointsLedgerMapper.insert(ledger);
-    }
-
-    private void outbox(String aggregateType, String aggregateId, String eventType, String payload) {
-        OutboxEvent event = new OutboxEvent();
-        event.setAggregateType(aggregateType);
-        event.setAggregateId(aggregateId);
-        event.setEventType(eventType);
-        event.setPayload(payload);
-        event.setStatus("NEW");
-        event.setRetryCount(0);
-        event.setCreatedAt(LocalDateTime.now());
-        outboxMapper.insert(event);
+        return new BizException("ORDER_STATUS_INVALID", "订单当前无法支付");
     }
 
     private PaymentView view(PaymentRecord payment) {
-        return new PaymentView(payment.getPaymentNo(), payment.getOrderNo(), payment.getAmountCents(), payment.getChannel(), payment.getStatus(), payment.getConfirmedAt());
+        return new PaymentView(payment.getPaymentNo(), payment.getOrderNo(), payment.getAmountCents(),
+                payment.getChannel(), payment.getStatus(), payment.getSessionExpiresAt(), payment.getConfirmedAt());
+    }
+
+    private record LockedPayment(OrderRecord order, PaymentRecord payment) {
     }
 }
