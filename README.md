@@ -44,16 +44,7 @@ mvn -q -DskipTests package
 docker compose up -d
 ```
 
-Development ports:
-
-- Web: `5173`
-- Admin: `5174`
-- Gateway: `8080`
-- RabbitMQ console: `15672`
-- Nacos: `8848`
-- MinIO console: `9001`
-
-本地环境提供开放内容的演示导入，不实现未经授权的小说或漫画抓取。演示导入不会在生产 Profile 注册。
+只提供数据演示，非真实数据。
 
 ## AI 客服
 
